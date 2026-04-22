@@ -17,39 +17,64 @@ impl PathResolver {
         let mut result = input.to_string();
 
         if let Some(home) = dirs::home_dir() {
-            result = result.replace("<home>", &home.to_string_lossy());
+            let home_str = home.to_string_lossy();
+            if result.contains("<home>") {
+                result = result.replace("<home>", &home_str);
+            }
         }
 
         if let Some(appdata) = dirs::data_dir() {
-            result = result.replace("<appdata>", &appdata.to_string_lossy());
+            let appdata_str = appdata.to_string_lossy();
+            if result.contains("<appdata>") {
+                result = result.replace("<appdata>", &appdata_str);
+            }
         }
 
         if let Some(local) = dirs::data_local_dir() {
-            result = result.replace("<localappdata>", &local.to_string_lossy());
+            let local_str = local.to_string_lossy();
+            if result.contains("<localappdata>") {
+                result = result.replace("<localappdata>", &local_str);
+            }
         }
 
         if let Some(documents) = dirs::document_dir() {
-            result = result.replace("<documents>", &documents.to_string_lossy());
+            let documents_str = documents.to_string_lossy();
+            if result.contains("<documents>") {
+                result = result.replace("<documents>", &documents_str);
+            }
         }
 
         if let Some(desktop) = dirs::desktop_dir() {
-            result = result.replace("<desktop>", &desktop.to_string_lossy());
+            let desktop_str = desktop.to_string_lossy();
+            if result.contains("<desktop>") {
+                result = result.replace("<desktop>", &desktop_str);
+            }
         }
 
         if let Some(download) = dirs::download_dir() {
-            result = result.replace("<downloads>", &download.to_string_lossy());
+            let download_str = download.to_string_lossy();
+            if result.contains("<downloads>") {
+                result = result.replace("<downloads>", &download_str);
+            }
         }
 
         if let Some(temp) = dirs::cache_dir() {
-            result = result.replace("<temp>", &temp.to_string_lossy());
+            let temp_str = temp.to_string_lossy();
+            if result.contains("<temp>") {
+                result = result.replace("<temp>", &temp_str);
+            }
         }
 
-        if let Some(pf) = std::env::var_os("ProgramFiles") {
-            result = result.replace("<programfiles>", &pf.to_string_lossy());
+        if let Ok(pf) = std::env::var("ProgramFiles")
+            && result.contains("<programfiles>")
+        {
+            result = result.replace("<programfiles>", &pf);
         }
 
-        if let Some(pf86) = std::env::var_os("ProgramFiles(x86)") {
-            result = result.replace("<programfilesx86>", &pf86.to_string_lossy());
+        if let Ok(pf86) = std::env::var("ProgramFiles(x86)")
+            && result.contains("<programfilesx86>")
+        {
+            result = result.replace("<programfilesx86>", &pf86);
         }
 
         result.replace("/", "\\")

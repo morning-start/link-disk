@@ -239,9 +239,9 @@ fn link_app(
                 sp.stop();
                 println!("  ✓ Linked: {} ({})", display_name, source_name);
             }
-            Err(_) => {
+            Err(e) => {
                 sp.stop();
-                anyhow::bail!("Failed to link {}:{}", app_id, source.source);
+                anyhow::bail!("Failed to link {}:{} - {}", app_id, source_path_str, e);
             }
         }
     }

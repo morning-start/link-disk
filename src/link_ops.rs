@@ -54,6 +54,12 @@ impl LinkOps {
 
         if verbose {
             println!("Linking: {:?} -> {:?}", source, target);
+            println!("  Source exists: {}", source.exists());
+            println!("  Source is_symlink: {}", source.is_symlink());
+            println!("  Target exists: {}", target.exists());
+            println!("  Target is_symlink: {}", target.is_symlink());
+            println!("  Force: {}", request.force);
+            println!("  LinkType: {:?}", request.link_type);
         }
 
         if source.is_symlink() {
@@ -81,6 +87,9 @@ impl LinkOps {
         }
 
         if source.exists() {
+            if verbose {
+                println!("Source exists, moving to target...");
+            }
             if target.exists() {
                 match request.on_exists {
                     OnExists::Skip => {
@@ -105,6 +114,9 @@ impl LinkOps {
             FsUtils::ensure_parent_exists(target)?;
             FsUtils::move_dir_cross_filesystem(source, target)?;
         } else {
+            if verbose {
+                println!("Source does not exist, creating target directory structure...");
+            }
             FsUtils::ensure_parent_exists(target)?;
             if !target.exists() {
                 std::fs::create_dir_all(target)
@@ -114,9 +126,15 @@ impl LinkOps {
 
         match request.link_type {
             LinkType::Symlink => {
+                if verbose {
+                    println!("Creating symlink: {:?} -> {:?}", source, target);
+                }
                 FsUtils::create_symlink(target, source)?;
             }
             LinkType::Hardlink => {
+                if verbose {
+                    println!("Creating hardlink: {:?} -> {:?}", source, target);
+                }
                 FsUtils::hard_link(target, source)?;
             }
         }

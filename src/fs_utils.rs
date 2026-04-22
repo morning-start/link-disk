@@ -55,6 +55,13 @@ impl FsUtils {
     }
 
     pub fn remove_if_exists(path: &Path, verbose: bool) -> Result<()> {
+        if path.is_symlink() {
+            if verbose {
+                println!("Removing symlink: {:?}", path);
+            }
+            return Self::remove_symlink(path);
+        }
+
         if !path.exists() {
             return Ok(());
         }
@@ -73,6 +80,22 @@ impl FsUtils {
                 .with_context(|| format!("Failed to remove file: {:?}", path))?;
         }
         Ok(())
+    }
+
+    fn remove_symlink(path: &Path) -> Result<()> {
+        #[cfg(windows)]
+        {
+            if std::fs::remove_dir(path).is_err() {
+                std::fs::remove_file(path)?;
+            }
+            Ok(())
+        }
+
+        #[cfg(not(windows))]
+        {
+            std::fs::remove_file(path)
+                .with_context(|| format!("Failed to remove symlink: {:?}", path))
+        }
     }
 
     pub fn rename(src: &Path, dst: &Path) -> Result<()> {

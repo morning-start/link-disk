@@ -10,6 +10,7 @@ use cli::{Cli, Commands};
 use config::{AppConfig, Config};
 use link_ops::{LinkRequest, LinkType, OnExists};
 use path_resolver::PathResolver;
+use spinners::{Spinner, Spinners};
 use workspace::Workspace;
 
 fn main() {
@@ -178,18 +179,34 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
             continue;
         }
 
-        let source_path = PathResolver::resolve(&source.source)
-            .with_context(|| format!("Failed to resolve source path: {}", source.source))?;
+        let source_path = match PathResolver::resolve(&source.source) {
+            Ok(p) => p,
+            Err(_) => {
+                println!("  Skipping (source does not exist): {}", source.source);
+                continue;
+            }
+        };
 
         let request = LinkRequest {
-            source: source_path,
-            target: target_path,
+            source: source_path.clone(),
+            target: target_path.clone(),
             link_type: LinkType::from_str(&source.link_type),
             on_exists: OnExists::from_str(app_config.on_exists_strategy()),
         };
 
-        link_ops::LinkOps::link(&request, verbose)
-            .with_context(|| format!("Failed to link {}:{}", app_name, source.source))?;
+        let source_name = source.source.split('/').last().unwrap_or(&source.source);
+        let mut sp = Spinner::new(Spinners::Dots12, format!("  Linking {}...", source_name));
+
+        match link_ops::LinkOps::link(&request, verbose) {
+            Ok(_) => {
+                sp.stop();
+                println!("  ✓ Linked: {}", source_name);
+            }
+            Err(_) => {
+                sp.stop();
+                anyhow::bail!("Failed to link {}:{}", app_name, source.source);
+            }
+        }
     }
 
     Ok(())

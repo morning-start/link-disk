@@ -167,7 +167,8 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
 
     for source in &app_config.sources {
         let source_path_str = PathResolver::expand(&source.source);
-        let target_path = Workspace::resolve_target(workspace_path, &source.target);
+        let target_relative = format!("{}/{}", app_name, source.target);
+        let target_path = Workspace::resolve_target(workspace_path, &target_relative);
 
         if verbose {
             println!("  Source: {:?}", source_path_str);
@@ -179,13 +180,8 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
             continue;
         }
 
-        let source_path = match PathResolver::resolve(&source.source) {
-            Ok(p) => p,
-            Err(_) => {
-                println!("  Skipping (source does not exist): {}", source.source);
-                continue;
-            }
-        };
+        let source_path = PathResolver::resolve_if_exists(&source.source)
+            .unwrap_or_else(|| PathResolver::expand(&source.source).into());
 
         let request = LinkRequest {
             source: source_path.clone(),
@@ -219,7 +215,8 @@ fn unlink_app(config: &Config, app_name: &str, app_config: &AppConfig, keep_file
         let source_path = PathResolver::resolve_if_exists(&source.source)
             .unwrap_or_else(|| PathResolver::expand(&source.source).into());
 
-        let target_path = Workspace::resolve_target(workspace_path, &source.target);
+        let target_relative = format!("{}/{}", app_name, source.target);
+        let target_path = Workspace::resolve_target(workspace_path, &target_relative);
 
         if verbose {
             println!("  Source: {:?}", source_path);
@@ -260,10 +257,12 @@ fn check_app_status(_config: &Config, app_config: &AppConfig) {
 
 fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: bool) -> Result<()> {
     let workspace_path = &config.workspace.path;
+    let app_name = &app_config.name;
 
     for source in &app_config.sources {
         let source_path: std::path::PathBuf = PathResolver::expand(&source.source).into();
-        let target_path = Workspace::resolve_target(workspace_path, &source.target);
+        let target_relative = format!("{}/{}", app_name, source.target);
+        let target_path = Workspace::resolve_target(workspace_path, &target_relative);
         let status = link_ops::LinkOps::check_status(&source_path, &target_path);
 
         match status {

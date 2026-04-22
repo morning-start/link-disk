@@ -36,10 +36,16 @@ pub struct Source {
     pub target: String,
     #[serde(default = "default_link_type")]
     pub link_type: String,
+    #[serde(default = "default_source_type")]
+    pub source_type: String,
 }
 
 fn default_link_type() -> String {
     "symlink".to_string()
+}
+
+fn default_source_type() -> String {
+    "dir".to_string()
 }
 
 impl Config {

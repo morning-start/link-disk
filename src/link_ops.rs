@@ -22,6 +22,7 @@ impl LinkType {
 pub enum OnExists {
     Skip,
     Merge,
+    Overwrite,
     Replace,
 }
 
@@ -29,8 +30,24 @@ impl OnExists {
     pub fn from_str(s: &str) -> Self {
         match s.to_lowercase().as_str() {
             "merge" => OnExists::Merge,
+            "overwrite" => OnExists::Overwrite,
             "replace" => OnExists::Replace,
             _ => OnExists::Skip,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SourceType {
+    Dir,
+    File,
+}
+
+impl SourceType {
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "file" => SourceType::File,
+            _ => SourceType::Dir,
         }
     }
 }
@@ -40,6 +57,7 @@ pub struct LinkRequest {
     pub target: PathBuf,
     pub link_type: LinkType,
     pub on_exists: OnExists,
+    pub source_type: SourceType,
 }
 
 impl LinkOps {
@@ -92,6 +110,18 @@ impl LinkOps {
                         }
                         return Self::merge_dirs(source, target, verbose);
                     }
+                    OnExists::Overwrite => {
+                        if verbose {
+                            println!("Overwrite: removing source, keeping target: {:?}", source);
+                        }
+                        if source.is_dir() {
+                            std::fs::remove_dir_all(source)
+                                .context("Failed to remove source directory")?;
+                        } else {
+                            std::fs::remove_file(source)
+                                .context("Failed to remove source file")?;
+                        }
+                    }
                 }
             }
 
@@ -117,13 +147,26 @@ impl LinkOps {
 
         match request.link_type {
             LinkType::Symlink => {
-                #[cfg(windows)]
-                std::os::windows::fs::symlink_dir(target, source)
-                    .with_context(|| format!("Failed to create symlink at {:?} pointing to {:?}", source, target))?;
+                match request.source_type {
+                    SourceType::File => {
+                        #[cfg(windows)]
+                        std::os::windows::fs::symlink_file(target, source)
+                            .with_context(|| format!("Failed to create symlink at {:?} pointing to {:?}", source, target))?;
 
-                #[cfg(not(windows))]
-                std::os::unix::fs::symlink(target, source)
-                    .with_context(|| format!("Failed to create symlink at {:?} pointing to {:?}", source, target))?;
+                        #[cfg(not(windows))]
+                        std::os::unix::fs::symlink(target, source)
+                            .with_context(|| format!("Failed to create symlink at {:?} pointing to {:?}", source, target))?;
+                    }
+                    SourceType::Dir => {
+                        #[cfg(windows)]
+                        std::os::windows::fs::symlink_dir(target, source)
+                            .with_context(|| format!("Failed to create symlink at {:?} pointing to {:?}", source, target))?;
+
+                        #[cfg(not(windows))]
+                        std::os::unix::fs::symlink(target, source)
+                            .with_context(|| format!("Failed to create symlink at {:?} pointing to {:?}", source, target))?;
+                    }
+                }
             }
             LinkType::Hardlink => {
                 std::fs::hard_link(target, source)

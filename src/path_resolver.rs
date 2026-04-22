@@ -1,19 +1,10 @@
 use std::path::PathBuf;
 
-use anyhow::Result;
-
 pub struct PathResolver;
 
 impl PathResolver {
-    pub fn resolve(path: &str) -> Result<PathBuf> {
-        let resolved = Self::replace_placeholders(path);
-        let path = PathBuf::from(&resolved);
-
-        if !path.exists() {
-            anyhow::bail!("Path does not exist: {}", resolved);
-        }
-
-        Ok(path)
+    pub fn expand(path: &str) -> String {
+        Self::replace_placeholders(path)
     }
 
     pub fn resolve_if_exists(path: &str) -> Option<PathBuf> {
@@ -69,10 +60,6 @@ impl PathResolver {
         result = result.replace("/", "\\");
 
         result
-    }
-
-    pub fn expand(path: &str) -> String {
-        Self::replace_placeholders(path)
     }
 }
 

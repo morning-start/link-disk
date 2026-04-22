@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
 use config::{AppConfig, Config};
-use link_ops::{LinkRequest, LinkType, OnExists};
+use link_ops::{LinkRequest, LinkType, OnExists, SourceType};
 use path_resolver::PathResolver;
 use spinners::{Spinner, Spinners};
 use workspace::Workspace;
@@ -49,6 +49,16 @@ fn run() -> Result<()> {
 
         Commands::Link { apps, all, dry_run } => {
             let config = load_config(&cli.config)?;
+
+            let workspace_path = &config.workspace.path;
+            if !workspace_path.exists() {
+                if cli.verbose {
+                    println!("Creating workspace directory: {:?}", workspace_path);
+                }
+                std::fs::create_dir_all(workspace_path)
+                    .with_context(|| format!("Failed to create workspace directory: {:?}", workspace_path))?;
+            }
+
             let apps_to_link = resolve_apps(&config, apps, *all)?;
 
             if apps_to_link.is_empty() {
@@ -188,15 +198,17 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
             target: target_path.clone(),
             link_type: LinkType::from_str(&source.link_type),
             on_exists: OnExists::from_str(app_config.on_exists_strategy()),
+            source_type: SourceType::from_str(&source.source_type),
         };
 
         let source_name = source.source.split('/').last().unwrap_or(&source.source);
-        let mut sp = Spinner::new(Spinners::Dots12, format!("  Linking {}...", source_name));
+        let display_name = &app_config.name;
+        let mut sp = Spinner::new(Spinners::Dots12, format!("  Linking {}...", display_name));
 
         match link_ops::LinkOps::link(&request, verbose) {
             Ok(_) => {
                 sp.stop();
-                println!("  ✓ Linked: {}", source_name);
+                println!("  ✓ Linked: {} ({})", display_name, source_name);
             }
             Err(_) => {
                 sp.stop();

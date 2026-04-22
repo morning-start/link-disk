@@ -20,18 +20,26 @@ impl Workspace {
         let config_file = config_dir.join("config.toml");
         let workspace_path_str = path.to_string_lossy().replace("\\", "/");
         let default_config = format!(r#"# link-disk 配置文件
+# on_exists: skip | overwrite | fail
+#   - skip: 不处理已存在的链接
+#   - overwrite: 覆盖已存在的链接
+#   - fail: 抛出错误
+# link_type: symlink | hardlink
+#   - symlink: 创建符号链接
+#   - hardlink: 创建硬链接
+
 
 [workspace]
 path = "{}"
 
 [apps.vscode]
 name = "VSCode"
-on_exists = "skip"
+on_exists = "skip" # 不处理已存在的链接
 
 [[apps.vscode.sources]]
 source = "<home>/AppData/Roaming/Code"
 target = "vscode/Roaming"
-link_type = "symlink"
+link_type = "symlink" # 创建符号链接
 
 [[apps.vscode.sources]]
 source = "<home>/.vscode"

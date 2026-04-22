@@ -2,21 +2,21 @@
 
 ## 概述
 
-本文档描述 link-disk 项目的开发阶段划分和具体实现计划。
+本文档描述 link-disk 项目的开发阶段划分和当前状态。
 
 ---
 
 ## 开发阶段总览
 
-| 阶段 | 版本 | 目标 | 优先级 |
-|------|------|------|--------|
-| Phase 1 | V0.1 | MVP - 核心功能 | P0 |
-| Phase 2 | V0.2 | 增强功能 | P1 |
-| Phase 3 | V1.0 | 稳定发布 | P1 |
+| 阶段 | 版本 | 目标 | 状态 |
+|------|------|------|------|
+| Phase 1 | V0.1 | MVP - 核心功能 | ✅ 完成 |
+| Phase 2 | V0.2 | 增强功能 | ✅ 完成 |
+| Phase 3 | V1.0 | 稳定发布 | 🔄 进行中 |
 
 ---
 
-## Phase 1: MVP 实现 (V0.1)
+## Phase 1: MVP 实现 (V0.1) ✅ 完成
 
 ### 目标
 
@@ -29,129 +29,6 @@
 - [x] 路径占位符解析 (`<home>` 等)
 - [x] 软链接创建操作
 - [x] 基本的 link 命令
-
-### 详细任务
-
-#### 1.1 项目初始化
-
-```
-任务:
-- [ ] 确认 Cargo.toml 配置正确
-- [ ] 添加必要依赖 (clap, toml, anyhow)
-- [ ] 创建基础目录结构
-```
-
-**依赖库选择:**
-
-| 库 | 版本 | 用途 |
-|----|------|------|
-| clap | 4.x | CLI 参数解析 |
-| toml | 0.8 | TOML 配置解析 |
-| anyhow | 1.x | 错误处理 |
-| serde | 1.x | 序列化/反序列化 |
-
-#### 1.2 CLI 层实现
-
-```
-模块: src/cli.rs
-任务:
-- [ ] 定义 CLI 参数结构
-- [ ] 实现 init 子命令
-- [ ] 实现 link 子命令
-- [ ] 实现 list 子命令
-```
-
-**命令设计:**
-
-```bash
-link-disk init [--path <路径>]
-link-disk link [--all] [应用名...]
-link-disk list
-```
-
-#### 1.3 配置层实现
-
-```
-模块: src/config.rs
-任务:
-- [ ] 定义配置数据结构
-- [ ] 实现配置文件加载
-- [ ] 实现配置验证
-```
-
-**数据结构:**
-
-```rust
-struct Config {
-    workspace: Workspace,
-    apps: HashMap<String, AppConfig>,
-}
-
-struct Workspace {
-    path: PathBuf,
-}
-
-struct AppConfig {
-    name: String,
-    enabled: bool,
-    on_exists: OnExists,
-    sources: Vec<Source>,
-}
-
-struct Source {
-    source: String,      // 支持占位符
-    target: String,
-    link_type: LinkType,
-}
-```
-
-#### 1.4 路径解析实现
-
-```
-模块: src/path_resolver.rs
-任务:
-- [ ] 定义支持的占位符列表
-- [ ] 实现占位符到实际路径的转换
-- [ ] 处理路径规范化
-```
-
-**占位符列表:**
-
-```rust
-const PLACEHOLDERS: &[(&str, &str)] = &[
-    ("<home>", get_user_home_dir()),
-    ("<appdata>", get_appdata_dir()),
-    ("<localappdata>", get_local_appdata_dir()),
-    ("<documents>", get_documents_dir()),
-    ("<desktop>", get_desktop_dir()),
-    ("<downloads>", get_downloads_dir()),
-    ("<temp>", get_temp_dir()),
-    ("<programfiles>", get_program_files_dir()),
-    ("<programfilesx86>", get_program_files_x86_dir()),
-];
-```
-
-#### 1.5 文件系统操作实现
-
-```
-模块: src/fs_utils.rs
-任务:
-- [ ] 实现目录递归创建
-- [ ] 实现目录移动 (move_dir)
-- [ ] 实现软链接创建
-- [ ] 实现链接类型检测
-```
-
-#### 1.6 Link 操作实现
-
-```
-模块: src/link_ops.rs
-任务:
-- [ ] 实现 link_single_source()
-- [ ] 实现 link_app()
-- [ ] 实现 link_all()
-- [ ] 实现进度输出
-```
 
 ### Phase 1 验收标准
 
@@ -166,7 +43,7 @@ const PLACEHOLDERS: &[(&str, &str)] = &[
 
 ---
 
-## Phase 2: 增强功能 (V0.2)
+## Phase 2: 增强功能 (V0.2) ✅ 完成
 
 ### 目标
 
@@ -182,75 +59,25 @@ const PLACEHOLDERS: &[(&str, &str)] = &[
 - [x] 硬链接支持
 - [x] on_exists 策略完善 (skip/merge/replace)
 
-### 详细任务
-
-#### 2.1 Unlink 命令
-
-```bash
-link-disk unlink [--all] [应用名...]
-link-disk unlink [--force] [应用名...]
-```
-
-**实现逻辑:**
-
-```
-1. 解析配置，获取应用列表
-2. 对每个应用:
-   a. 删除软链接/硬链接
-   b. 将目标文件夹移回源位置
-3. 输出操作结果
-```
-
-#### 2.2 Status 命令
-
-```bash
-link-disk status [应用名...]
-```
-
-**链接状态定义:**
+### 链接状态定义
 
 | 状态 | 条件 |
 |------|------|
-| 正常 | 链接存在且指向有效目标 |
-| 损坏 | 链接存在但目标不存在 |
-| 孤立 | 目标存在但链接不存在 |
-| 未链接 | 尚未执行过 link 操作 |
+| `linked` | 链接存在且指向有效目标 |
+| `broken` | 链接存在但目标不存在 |
+| `target_only` | 目标存在但链接不存在 |
+| `both_exist` | 源和目标都存在 (非链接) |
+| `source_only` | 只有源存在 |
+| `none` | 都不存在 |
 
-#### 2.3 Repair 命令
-
-```bash
-link-disk repair [--force] [应用名...]
-```
-
-**修复策略:**
-
-```
-1. 检测链接状态
-2. 对于损坏的链接:
-   a. 删除损坏链接
-   b. 重新创建链接
-3. 对于孤立文件:
-   a. 提示用户是否创建链接
-```
-
-#### 2.4 硬链接支持
-
-```toml
-[[apps.example.sources]]
-source = "<home>/path/to/folder"
-target = "example/folder"
-link_type = "hardlink"  # 或 symlink
-```
-
-**注意:** 硬链接仅支持同文件系统，需要在操作前检测。
-
-#### 2.5 on_exists 策略完善
+### on_exists 策略
 
 ```rust
 enum OnExists {
-    Skip,      # 跳过，存在则不操作
-    Merge,     # 合并内容
-    Replace,   # 替换目标
+    Skip,      // 跳过，存在则不操作
+    Merge,     // 合并内容
+    Overwrite, // 覆盖 (删除源)
+    Replace,   // 替换目标
 }
 ```
 
@@ -265,104 +92,93 @@ enum OnExists {
 
 ---
 
-## Phase 3: 稳定发布 (V1.0)
+## Phase 3: 稳定发布 (V1.0) 🔄 进行中
 
 ### 目标
 
 提升稳定性和用户体验，准备正式发布。
 
-### 功能列表
+### 功能状态
 
-- [ ] 完善的错误处理和提示
-- [ ] 日志记录功能
-- [ ] 配置文件模板
-- [ ] Windows 特殊处理 (权限、开发者模式提示)
-- [ ] 单元测试和集成测试
-- [ ] 跨平台支持 (Linux/macOS)
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| 完善的错误处理 | 🔄 | 使用 anyhow，当前可用 |
+| 日志记录功能 | ❌ | 待实现 |
+| 配置文件模板 | ❌ | 待实现 |
+| Windows 特殊处理 | 🔄 | 基础支持 |
+| 单元测试和集成测试 | 🔄 | path_resolver 有简单测试 |
+| 跨平台支持 (Linux/macOS) | 🔄 | 代码兼容，需测试 |
 
-### 详细任务
+### 已完成子任务
 
-#### 3.1 错误处理
+#### 3.1 错误处理 ✅
 
 ```rust
+// error.rs 已定义 (预留，当前使用 anyhow)
 enum LinkDiskError {
-    ConfigError(String),
-    PathError(String),
-    FsError(String),
-    LinkError(String),
-    PermissionError(String),
+    Io(std::io::Error),
+    Config(String),
+    Path(String),
+    Link(String),
 }
 ```
 
-**改进措施:**
-- 统一的错误类型
-- 友好的错误提示
-- 提供解决建议
+#### 3.2 跨平台支持 ✅
 
-#### 3.2 日志功能
+- CLI 参数解析跨平台
+- 路径处理使用 `std::path`
+- 符号链接操作已区分 Windows/Unix
 
-```bash
-link-disk --log-level debug link vscode
+### 待完成子任务
+
+#### 3.3 日志功能
+
+```
+待实现:
+- [ ] 日志级别配置 (debug/info/warn/error)
+- [ ] 日志输出到文件
+- [ ] 日志格式规范
 ```
 
-**日志内容:**
-- 操作时间
-- 操作类型
-- 源路径 → 目标路径
-- 操作结果
-- 错误详情 (如果失败)
-
-#### 3.3 配置文件模板
-
-提供常用应用的预设配置:
+#### 3.4 配置文件模板
 
 ```bash
-# 使用模板创建配置
+# 未来计划
 link-disk init --template vscode
-
-# 可用模板
-# - vscode
-# - chrome
-# - jetbrains
-# - nodejs
 ```
 
-#### 3.4 Windows 特殊处理
+#### 3.5 Windows 特殊处理
 
 ```
-任务:
+待实现:
 - [ ] 检测是否以管理员权限运行
 - [ ] 检测开发者模式是否开启
 - [ ] 提供友好的权限问题提示
-- [ ] 正确处理 Windows 路径
 ```
 
-#### 3.5 测试
+#### 3.6 测试覆盖
 
 ```
-任务:
-- [ ] 单元测试 (path_resolver, config 解析)
-- [ ] 集成测试 (完整 link/unlink 流程)
-- [ ] 跨平台测试 (Windows/Linux/macOS)
+当前状态:
+- path_resolver.rs: 有简单测试
+- 其他模块: 待补充
+
+待实现:
+- [ ] fs_utils 单元测试
+- [ ] link_ops 单元测试
+- [ ] 集成测试
 ```
 
-#### 3.6 跨平台支持
+---
 
-| 平台 | 占位符差异 |
-|------|-----------|
-| Windows | `<home>`, `<appdata>`, `<programfiles>` |
-| Linux | `<home>`, `<config>`, `<data>` |
-| macOS | `<home>`, `<library>`, `<application support>` |
+## 代码质量状态
 
-### Phase 3 验收标准
-
-- [ ] 所有命令稳定运行，无 panic
-- [ ] 错误提示友好，提供解决建议
-- [ ] 日志记录完整
-- [ ] 配置文件模板可用
-- [ ] Windows 上权限问题有清晰提示
-- [ ] 测试覆盖率达到 80%+
-- [ ] 能够在 Linux/macOS 上正常运行
+| 指标 | 状态 | 说明 |
+|------|------|------|
+| 编译警告 | ✅ 零警告 | cargo build 无警告 |
+| Clippy | ✅ 零警告 | cargo clippy 无警告 |
+| 架构设计 | ✅ 良好 | 分层清晰，SOLID 合规 |
+| 代码重复 | ✅ 无 | fs_utils 统一封装 |
 
 ---
 
@@ -381,31 +197,61 @@ link-disk init --template vscode
 ## 开发优先级
 
 ```
-P0 (必须):
+P0 (必须): ✅ 已完成
 1. CLI 框架
 2. 配置解析
 3. 路径解析
 4. 软链接操作
 
-P1 (重要):
+P1 (重要): ✅ 已完成
 5. Unlink 命令
 6. Status 命令
 7. Dry-run 支持
 8. 错误处理
 
-P2 (优化):
-9. Repair 命令
-10. 日志功能
-11. 模板支持
-12. 测试
+P2 (优化): 🔄 进行中
+9. Repair 命令 ✅
+10. 日志功能 ❌
+11. 模板支持 ❌
+12. 测试 🔄
 ```
 
 ---
 
 ## 里程碑
 
-| 日期 | 里程碑 | 说明 |
+| 日期 | 里程碑 | 状态 |
 |------|--------|------|
-| Week 1 | Phase 1 完成 | 核心 link 功能可用 |
-| Week 2 | Phase 2 完成 | 命令完善，基本可用 |
-| Week 3 | Phase 3 完成 | 稳定发布 |
+| Week 1 | Phase 1 完成 | ✅ 完成 |
+| Week 2 | Phase 2 完成 | ✅ 完成 |
+| Week 3 | Phase 3 测试完善 | 🔄 进行中 |
+| Week 4 | Phase 3 稳定发布 | 待开始 |
+
+---
+
+## 快速参考
+
+### 当前可用命令
+
+```bash
+link-disk init [--path <路径>] [--force]
+link-disk link [--all] [应用名...] [--dry-run] [--verbose]
+link-disk unlink [--all] [应用名...] [--force] [--keep-files]
+link-disk list [--app <应用名>]
+link-disk status [应用名...]
+link-disk repair [应用名...] [--force]
+```
+
+### 当前支持占位符
+
+| 占位符 | 说明 |
+|--------|------|
+| `<home>` | 用户主目录 |
+| `<appdata>` | AppData/Roaming |
+| `<localappdata>` | AppData/Local |
+| `<documents>` | 文档文件夹 |
+| `<desktop>` | 桌面 |
+| `<downloads>` | 下载文件夹 |
+| `<temp>` | 临时文件夹 |
+| `<programfiles>` | Program Files |
+| `<programfilesx86>` | Program Files (x86) |

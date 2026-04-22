@@ -36,6 +36,9 @@ pub enum Commands {
 
         #[arg(short, long, help = "模拟运行，不实际执行操作")]
         dry_run: bool,
+
+        #[arg(short, long, help = "强制处理（删除已存在的软链接后重新链接）")]
+        force: bool,
     },
     #[command(about = "移除链接并恢复原文件位置")]
     Unlink {

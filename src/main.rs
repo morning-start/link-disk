@@ -1,5 +1,7 @@
 mod cli;
 mod config;
+mod error;
+mod fs_utils;
 mod link_ops;
 mod path_resolver;
 mod workspace;
@@ -8,7 +10,8 @@ use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
 use config::{AppConfig, Config};
-use link_ops::{LinkRequest, LinkType, OnExists, SourceType};
+use fs_utils::FsUtils;
+use link_ops::{LinkRequest, LinkType, OnExists};
 use path_resolver::PathResolver;
 use spinners::{Spinner, Spinners};
 use workspace::Workspace;
@@ -40,14 +43,13 @@ fn run() -> Result<()> {
                 println!("Initializing workspace at: {:?}", workspace_path);
             }
 
-            Workspace::init(&workspace_path)
-                .context("Failed to initialize workspace")?;
+            Workspace::init(&workspace_path).context("Failed to initialize workspace")?;
 
             println!("Workspace initialized at: {:?}", workspace_path);
             println!("Config file: {:?}", Workspace::config_path()?);
         }
 
-        Commands::Link { apps, all, dry_run } => {
+        Commands::Link { apps, all, dry_run, force } => {
             let config = load_config(&cli.config)?;
 
             let workspace_path = &config.workspace.path;
@@ -55,8 +57,7 @@ fn run() -> Result<()> {
                 if cli.verbose {
                     println!("Creating workspace directory: {:?}", workspace_path);
                 }
-                std::fs::create_dir_all(workspace_path)
-                    .with_context(|| format!("Failed to create workspace directory: {:?}", workspace_path))?;
+                FsUtils::ensure_parent_exists(workspace_path)?;
             }
 
             let apps_to_link = resolve_apps(&config, apps, *all)?;
@@ -67,18 +68,24 @@ fn run() -> Result<()> {
             }
 
             for app_name in apps_to_link {
-                let app_config = config.get_app(app_name)
+                let app_config = config
+                    .get_app(app_name)
                     .context("App not found in config")?;
 
                 if cli.verbose {
                     println!("\nLinking app: {}", app_config.name);
                 }
 
-                link_app(&config, app_name, app_config, *dry_run, cli.verbose)?;
+                link_app(&config, app_name, app_config, *dry_run, *force, cli.verbose)?;
             }
         }
 
-        Commands::Unlink { apps, all, force, keep_files } => {
+        Commands::Unlink {
+            apps,
+            all,
+            force,
+            keep_files,
+        } => {
             if !*force {
                 println!("This will remove links and move files back. Use --force to confirm.");
                 return Ok(());
@@ -88,7 +95,8 @@ fn run() -> Result<()> {
             let apps_to_unlink = resolve_apps(&config, apps, *all)?;
 
             for app_name in apps_to_unlink {
-                let app_config = config.get_app(app_name)
+                let app_config = config
+                    .get_app(app_name)
                     .context("App not found in config")?;
 
                 if cli.verbose {
@@ -135,7 +143,11 @@ fn run() -> Result<()> {
         Commands::Repair { apps, force } => {
             let config = load_config(&cli.config)?;
             let apps_to_repair: Vec<String> = if apps.is_empty() {
-                config.enabled_apps().into_iter().map(|(n, _)| n.clone()).collect()
+                config
+                    .enabled_apps()
+                    .into_iter()
+                    .map(|(n, _)| n.clone())
+                    .collect()
             } else {
                 apps.clone()
             };
@@ -158,7 +170,10 @@ fn load_config(config_path: &Option<String>) -> Result<Config> {
     };
 
     if !path.exists() {
-        anyhow::bail!("Config file not found: {:?}. Run 'link-disk init' first.", path);
+        anyhow::bail!(
+            "Config file not found: {:?}. Run 'link-disk init' first.",
+            path
+        );
     }
 
     Config::load(&path)
@@ -172,7 +187,14 @@ fn resolve_apps<'a>(config: &'a Config, apps: &'a [String], all: bool) -> Result
     }
 }
 
-fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bool, verbose: bool) -> Result<()> {
+fn link_app(
+    config: &Config,
+    app_name: &str,
+    app_config: &AppConfig,
+    dry_run: bool,
+    force: bool,
+    verbose: bool,
+) -> Result<()> {
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
@@ -186,7 +208,10 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
         }
 
         if dry_run {
-            println!("  [DRY RUN] Would link {:?} -> {:?}", source_path_str, target_path);
+            println!(
+                "  [DRY RUN] Would link {:?} -> {:?}",
+                source_path_str, target_path
+            );
             continue;
         }
 
@@ -198,10 +223,14 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
             target: target_path.clone(),
             link_type: LinkType::from_str(&source.link_type),
             on_exists: OnExists::from_str(app_config.on_exists_strategy()),
-            source_type: SourceType::from_str(&source.source_type),
+            force,
         };
 
-        let source_name = source.source.split('/').last().unwrap_or(&source.source);
+        let source_name = source
+            .source
+            .split('/')
+            .next_back()
+            .unwrap_or(&source.source);
         let display_name = &app_config.name;
         let mut sp = Spinner::new(Spinners::Dots12, format!("  Linking {}...", display_name));
 
@@ -220,7 +249,13 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
     Ok(())
 }
 
-fn unlink_app(config: &Config, app_name: &str, app_config: &AppConfig, keep_files: bool, verbose: bool) -> Result<()> {
+fn unlink_app(
+    config: &Config,
+    app_name: &str,
+    app_config: &AppConfig,
+    keep_files: bool,
+    verbose: bool,
+) -> Result<()> {
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
@@ -255,7 +290,10 @@ fn check_app_status(_config: &Config, app_config: &AppConfig) {
 
     for source in &app_config.sources {
         let source_path: std::path::PathBuf = PathResolver::expand(&source.source).into();
-        let status = link_ops::LinkOps::check_status(&source_path, &std::path::PathBuf::from(&source.target));
+        let status = link_ops::LinkOps::check_status(
+            &source_path,
+            &std::path::PathBuf::from(&source.target),
+        );
 
         let status_icon = match status {
             "linked" => "✓",
@@ -269,11 +307,14 @@ fn check_app_status(_config: &Config, app_config: &AppConfig) {
 
 fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: bool) -> Result<()> {
     let workspace_path = &config.workspace.path;
-    let app_name = &app_config.name;
 
     for source in &app_config.sources {
         let source_path: std::path::PathBuf = PathResolver::expand(&source.source).into();
-        let target_relative = format!("{}/{}", app_name, source.target);
+        let target_relative = format!(
+            "{}/{}",
+            app_config.name.replace(" ", "_").to_lowercase(),
+            source.target
+        );
         let target_path = Workspace::resolve_target(workspace_path, &target_relative);
         let status = link_ops::LinkOps::check_status(&source_path, &target_path);
 
@@ -283,13 +324,7 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
                     println!("  Repairing broken link: {}", source.source);
                 }
 
-                if source_path.exists() || source_path.is_symlink() {
-                    if source_path.is_symlink() {
-                        std::fs::remove_file(&source_path)?;
-                    } else {
-                        std::fs::remove_dir_all(&source_path)?;
-                    }
-                }
+                FsUtils::remove_if_exists(&source_path, verbose)?;
 
                 link_ops::LinkOps::unlink(&source_path, &target_path, false, verbose)?;
             }
@@ -299,13 +334,12 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
                         println!("  Creating link for orphaned target: {}", source.source);
                     }
 
-                    #[cfg(windows)]
-                    std::os::windows::fs::symlink_dir(&target_path, &source_path)?;
-
-                    #[cfg(not(windows))]
-                    std::os::unix::fs::symlink(&target_path, &source_path)?;
+                    FsUtils::create_symlink(&target_path, &source_path)?;
                 } else {
-                    println!("  Target exists without link. Use --force to create link: {}", source.source);
+                    println!(
+                        "  Target exists without link. Use --force to create link: {}",
+                        source.source
+                    );
                 }
             }
             _ => {

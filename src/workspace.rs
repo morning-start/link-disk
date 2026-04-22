@@ -75,6 +75,15 @@ link_type = "symlink"
         Ok(Self::config_dir()?.join("config.toml"))
     }
 
+    pub fn expand_path(path: &str) -> PathBuf {
+        if path.starts_with("~") {
+            if let Some(home) = dirs::home_dir() {
+                return home.join(path.trim_start_matches("~").trim_start_matches('/').trim_start_matches('\\'));
+            }
+        }
+        PathBuf::from(path)
+    }
+
     pub fn resolve_target(workspace: &PathBuf, relative: &str) -> PathBuf {
         let normalized = relative.replace("/", "\\");
         workspace.join(&normalized)

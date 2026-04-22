@@ -67,7 +67,7 @@ fn run() -> Result<()> {
             }
         }
 
-        Commands::Unlink { apps, all, force } => {
+        Commands::Unlink { apps, all, force, keep_files } => {
             if !*force {
                 println!("This will remove links and move files back. Use --force to confirm.");
                 return Ok(());
@@ -84,7 +84,7 @@ fn run() -> Result<()> {
                     println!("\nUnlinking app: {}", app_config.name);
                 }
 
-                unlink_app(&config, app_name, app_config, cli.verbose)?;
+                unlink_app(&config, app_name, app_config, *keep_files, cli.verbose)?;
             }
         }
 
@@ -142,7 +142,7 @@ fn run() -> Result<()> {
 
 fn load_config(config_path: &Option<String>) -> Result<Config> {
     let path = match config_path {
-        Some(p) => std::path::PathBuf::from(p),
+        Some(p) => Workspace::expand_path(p),
         None => Workspace::config_path()?,
     };
 
@@ -165,20 +165,21 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
-        let source_path = PathResolver::resolve(&source.source)
-            .with_context(|| format!("Failed to resolve source path: {}", source.source))?;
-
+        let source_path_str = PathResolver::expand(&source.source);
         let target_path = Workspace::resolve_target(workspace_path, &source.target);
 
         if verbose {
-            println!("  Source: {:?}", source_path);
+            println!("  Source: {:?}", source_path_str);
             println!("  Target: {:?}", target_path);
         }
 
         if dry_run {
-            println!("  [DRY RUN] Would link {:?} -> {:?}", source_path, target_path);
+            println!("  [DRY RUN] Would link {:?} -> {:?}", source_path_str, target_path);
             continue;
         }
+
+        let source_path = PathResolver::resolve(&source.source)
+            .with_context(|| format!("Failed to resolve source path: {}", source.source))?;
 
         let request = LinkRequest {
             source: source_path,
@@ -194,7 +195,7 @@ fn link_app(config: &Config, app_name: &str, app_config: &AppConfig, dry_run: bo
     Ok(())
 }
 
-fn unlink_app(config: &Config, app_name: &str, app_config: &AppConfig, verbose: bool) -> Result<()> {
+fn unlink_app(config: &Config, app_name: &str, app_config: &AppConfig, keep_files: bool, verbose: bool) -> Result<()> {
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
@@ -208,7 +209,7 @@ fn unlink_app(config: &Config, app_name: &str, app_config: &AppConfig, verbose: 
             println!("  Target: {:?}", target_path);
         }
 
-        link_ops::LinkOps::unlink(&source_path, &target_path, verbose)
+        link_ops::LinkOps::unlink(&source_path, &target_path, keep_files, verbose)
             .with_context(|| format!("Failed to unlink {}:{}", app_name, source.source))?;
     }
 
@@ -262,7 +263,7 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
                     }
                 }
 
-                link_ops::LinkOps::unlink(&source_path, &target_path, verbose)?;
+                link_ops::LinkOps::unlink(&source_path, &target_path, false, verbose)?;
             }
             "target_only" => {
                 if force {

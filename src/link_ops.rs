@@ -51,56 +51,64 @@ impl LinkOps {
             println!("Linking: {:?} -> {:?}", source, target);
         }
 
-        if !source.exists() {
-            anyhow::bail!("Source path does not exist: {:?}", source);
-        }
-
         if source.is_symlink() {
-            anyhow::bail!("Source is already a symlink: {:?}", source);
-        }
-
-        if target.exists() {
-            match request.on_exists {
-                OnExists::Skip => {
+            if let Ok(target_path) = std::fs::read_link(source) {
+                let normalized_linked = Self::normalize_path(&target_path);
+                let normalized_target = Self::normalize_path(target);
+                if normalized_linked == normalized_target {
                     if verbose {
-                        println!("Target already exists, skipping: {:?}", target);
+                        println!("Already linked: {:?} -> {:?}", source, target_path);
                     }
                     return Ok(());
                 }
-                OnExists::Replace => {
-                    if verbose {
-                        println!("Removing existing target: {:?}", target);
+            }
+            anyhow::bail!("Source is already a symlink pointing to different target: {:?}", source);
+        }
+
+        if source.exists() {
+            if target.exists() {
+                match request.on_exists {
+                    OnExists::Skip => {
+                        if verbose {
+                            println!("Target already exists, skipping: {:?}", target);
+                        }
+                        return Ok(());
                     }
-                    if target.is_dir() {
-                        std::fs::remove_dir_all(target)
-                            .context("Failed to remove existing target directory")?;
-                    } else {
-                        std::fs::remove_file(target)
-                            .context("Failed to remove existing target file")?;
+                    OnExists::Replace => {
+                        if verbose {
+                            println!("Removing existing target: {:?}", target);
+                        }
+                        if target.is_dir() {
+                            std::fs::remove_dir_all(target)
+                                .context("Failed to remove existing target directory")?;
+                        } else {
+                            std::fs::remove_file(target)
+                                .context("Failed to remove existing target file")?;
+                        }
                     }
-                }
-                OnExists::Merge => {
-                    if verbose {
-                        println!("Merging into existing target: {:?}", target);
+                    OnExists::Merge => {
+                        if verbose {
+                            println!("Merging into existing target: {:?}", target);
+                        }
+                        return Self::merge_dirs(source, target, verbose);
                     }
-                    return Self::merge_dirs(source, target, verbose);
                 }
             }
-        }
 
-        let parent = target.parent().unwrap_or(target);
-        if !parent.exists() {
-            std::fs::create_dir_all(parent)
-                .context("Failed to create target parent directory")?;
-        }
+            let parent = target.parent().unwrap_or(target);
+            if !parent.exists() {
+                std::fs::create_dir_all(parent)
+                    .context("Failed to create target parent directory")?;
+            }
 
-        std::fs::rename(source, target)
-            .with_context(|| {
-                format!(
-                    "Failed to move from {:?} to {:?}. Try running as administrator or enable Developer Mode.",
-                    source, target
-                )
-            })?;
+            Self::move_dir_cross_filesystem(source, target)?;
+        } else {
+            let parent = target.parent().unwrap_or(target);
+            if !parent.exists() {
+                std::fs::create_dir_all(parent)
+                    .context("Failed to create target parent directory")?;
+            }
+        }
 
         match request.link_type {
             LinkType::Symlink => {
@@ -125,7 +133,7 @@ impl LinkOps {
         Ok(())
     }
 
-    pub fn unlink(source: &PathBuf, target: &PathBuf, verbose: bool) -> Result<()> {
+    pub fn unlink(source: &PathBuf, target: &PathBuf, keep_files: bool, verbose: bool) -> Result<()> {
         if verbose {
             println!("Unlinking: {:?} -> {:?}", source, target);
         }
@@ -142,12 +150,12 @@ impl LinkOps {
             #[cfg(not(windows))]
             std::fs::remove_file(source)?;
 
-            if target.exists() {
+            if !keep_files && target.exists() {
                 Self::move_back(target, source)?;
             }
         } else if source.exists() {
             anyhow::bail!("Source is not a symlink: {:?}", source);
-        } else if target.exists() {
+        } else if target.exists() && !keep_files {
             Self::move_back(target, source)?;
         }
 
@@ -216,7 +224,7 @@ impl LinkOps {
     fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> Result<()> {
         if !dst.exists() {
             std::fs::create_dir_all(dst)
-                .context("Failed to create directory")?;
+                .with_context(|| format!("Failed to create directory: {:?}", dst))?;
         }
 
         for entry in std::fs::read_dir(src)
@@ -255,5 +263,25 @@ impl LinkOps {
         } else {
             "none"
         }
+    }
+
+    fn move_dir_cross_filesystem(src: &PathBuf, dst: &PathBuf) -> Result<()> {
+        if src.is_file() {
+            std::fs::copy(src, dst)
+                .with_context(|| format!("Failed to copy file from {:?} to {:?}", src, dst))?;
+            std::fs::remove_file(src)
+                .with_context(|| format!("Failed to remove source file: {:?}", src))?;
+        } else {
+            Self::copy_dir_recursive(src, dst)?;
+            std::fs::remove_dir_all(src)
+                .with_context(|| format!("Failed to remove source directory: {:?}", src))?;
+        }
+        Ok(())
+    }
+
+    fn normalize_path(path: &PathBuf) -> String {
+        path.to_string_lossy()
+            .replace("\\", "/")
+            .to_lowercase()
     }
 }

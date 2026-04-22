@@ -103,6 +103,15 @@ link-disk link [应用名...] [选项]
 | `--dry-run` | 模拟运行，不实际执行操作 |
 | `--verbose` | 显示详细信息 |
 
+**link 逻辑说明：**
+
+| 情况 | 处理方式 |
+|------|----------|
+| source 存在，target 不存在 | 移动 source → target，创建链接 |
+| source 存在，target 存在 | 根据 on_exists 处理（skip/merge/replace），然后移动并创建链接 |
+| source 不存在 | 直接创建链接（不移动） |
+| source 已是链接 | 报错 |
+
 **示例：**
 ```bash
 # 链接所有应用
@@ -135,7 +144,7 @@ link-disk unlink [应用名...] [选项]
 | 选项 | 说明 |
 |------|------|
 | `--force` | 强制移除，不确认 |
-| `--dry-run` | 模拟运行 |
+| `-k, --keep-files` | 只删除链接，不移动文件 |
 
 **示例：**
 ```bash
@@ -147,11 +156,14 @@ link-disk unlink vscode
 
 # 强制移除（跳过确认）
 link-disk unlink vscode --force
+
+# 只删除链接，保留目标位置的文件
+link-disk unlink vscode --force --keep-files
 ```
 
 **注意：** `unlink` 会：
 1. 删除之前创建的链接
-2. 将文件从目标位置移回源位置
+2. 将文件从目标位置移回源位置（除非使用 `--keep-files`）
 
 ---
 

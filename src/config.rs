@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
@@ -37,7 +37,7 @@ pub struct Source {
     #[serde(default = "default_link_type")]
     pub link_type: String,
     #[serde(default = "default_source_type")]
-    pub source_type: String,
+    pub _source_type: String,
 }
 
 fn default_link_type() -> String {
@@ -49,12 +49,11 @@ fn default_source_type() -> String {
 }
 
 impl Config {
-    pub fn load(path: &PathBuf) -> Result<Self> {
+    pub fn load(path: &Path) -> Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("Failed to read config file: {:?}", path))?;
 
-        let config: Config = toml::from_str(&content)
-            .context("Failed to parse config file")?;
+        let config: Config = toml::from_str(&content).context("Failed to parse config file")?;
 
         Ok(config)
     }
@@ -64,10 +63,7 @@ impl Config {
     }
 
     pub fn enabled_apps(&self) -> Vec<(&String, &AppConfig)> {
-        self.apps
-            .iter()
-            .filter(|(_, app)| app.enabled)
-            .collect()
+        self.apps.iter().filter(|(_, app)| app.enabled).collect()
     }
 }
 

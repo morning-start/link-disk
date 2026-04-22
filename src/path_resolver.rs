@@ -8,14 +8,9 @@ impl PathResolver {
     }
 
     pub fn resolve_if_exists(path: &str) -> Option<PathBuf> {
-        let resolved = Self::replace_placeholders(path);
-        let path = PathBuf::from(&resolved);
-
-        if path.exists() {
-            Some(path)
-        } else {
-            None
-        }
+        let expanded = Self::replace_placeholders(path);
+        let path = PathBuf::from(expanded);
+        if path.exists() { Some(path) } else { None }
     }
 
     fn replace_placeholders(input: &str) -> String {
@@ -57,9 +52,7 @@ impl PathResolver {
             result = result.replace("<programfilesx86>", &pf86.to_string_lossy());
         }
 
-        result = result.replace("/", "\\");
-
-        result
+        result.replace("/", "\\")
     }
 }
 

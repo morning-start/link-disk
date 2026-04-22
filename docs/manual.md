@@ -109,8 +109,10 @@ link-disk link [应用名...] [选项]
 |------|----------|
 | source 存在，target 不存在 | 移动 source → target，创建链接 |
 | source 存在，target 存在 | 根据 on_exists 处理（skip/merge/replace），然后移动并创建链接 |
-| source 不存在 | 直接创建链接（不移动） |
-| source 已是链接 | 报错 |
+| source 不存在，target 不存在 | 创建 target 目录，创建链接 |
+| source 不存在，target 存在 | 直接创建链接 |
+| source 已是正确链接 | 跳过，显示 "Already linked" |
+| source 已是错误链接 | 报错 |
 
 **示例：**
 ```bash

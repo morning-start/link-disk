@@ -103,11 +103,16 @@ impl LinkOps {
 
             Self::move_dir_cross_filesystem(source, target)?;
         } else {
-            let parent = target.parent().unwrap_or(target);
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)
-                    .context("Failed to create target parent directory")?;
+            // source 不存在的情况
+            if !target.exists() {
+                // target 也不存在，创建 target 目录
+                let parent = target.parent().unwrap_or(target);
+                if !parent.exists() {
+                    std::fs::create_dir_all(parent)
+                        .context("Failed to create target parent directory")?;
+                }
             }
+            // target 存在则直接创建链接
         }
 
         match request.link_type {

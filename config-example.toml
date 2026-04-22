@@ -1,0 +1,65 @@
+# link-disk 配置文件示例
+# 复制此文件到 ~/.link-disk/config.toml 并根据需要修改
+
+[workspace]
+path = "D:/link-disk-workspace"
+
+# ============ VSCode ============
+[apps.vscode]
+name = "VSCode"
+on_exists = "skip"
+
+[[apps.vscode.sources]]
+source = "<home>/AppData/Roaming/Code"
+target = "vscode/Roaming"
+link_type = "symlink"
+
+[[apps.vscode.sources]]
+source = "<home>/.vscode"
+target = "vscode/config"
+link_type = "symlink"
+
+# ============ Chrome ============
+[apps.chrome]
+name = "Chrome"
+on_exists = "skip"
+
+[[apps.chrome.sources]]
+source = "<home>/AppData/Local/Google/Chrome"
+target = "chrome/Local"
+link_type = "symlink"
+
+[[apps.chrome.sources]]
+source = "<home>/AppData/Roaming/Google/Chrome"
+target = "chrome/Roaming"
+link_type = "symlink"
+
+# ============ 微信开发者工具 ============
+[apps.wx-devtools]
+name = "WeChat DevTools"
+on_exists = "skip"
+
+[[apps.wx-devtools.sources]]
+source = "<localappdata>/Tencent/WeChatDevTools"
+target = "wx-devtools/Cache"
+link_type = "symlink"
+
+# ============ 钉钉 ============
+[apps.dingtalk]
+name = "DingTalk"
+on_exists = "skip"
+
+[[apps.dingtalk.sources]]
+source = "<home>/AppData/Local/Packages/阿里巴巴.钉钉"
+target = "dingtalk/Package"
+link_type = "symlink"
+
+# ============ Windows Terminal ============
+[apps.windows-terminal]
+name = "Windows Terminal"
+on_exists = "skip"
+
+[[apps.windows-terminal.sources]]
+source = "<localappdata>/Packages/Microsoft.WindowsTerminal"
+target = "windows-terminal/Package"
+link_type = "symlink"

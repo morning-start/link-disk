@@ -105,8 +105,10 @@ impl LinkOps {
             FsUtils::ensure_parent_exists(target)?;
             FsUtils::move_dir_cross_filesystem(source, target)?;
         } else {
+            FsUtils::ensure_parent_exists(target)?;
             if !target.exists() {
-                FsUtils::ensure_parent_exists(target)?;
+                std::fs::create_dir_all(target)
+                    .with_context(|| format!("Failed to create target directory: {:?}", target))?;
             }
         }
 

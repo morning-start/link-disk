@@ -67,16 +67,16 @@ fn run() -> Result<()> {
                 return Ok(());
             }
 
-            for app_name in apps_to_link {
+            for app_id in apps_to_link {
                 let app_config = config
-                    .get_app(app_name)
+                    .get_app(app_id)
                     .context("App not found in config")?;
 
                 if cli.verbose {
                     println!("\nLinking app: {}", app_config.name);
                 }
 
-                link_app(&config, app_name, app_config, *dry_run, *force, cli.verbose)?;
+                link_app(&config, app_id, app_config, *dry_run, *force, cli.verbose)?;
             }
         }
 
@@ -94,16 +94,16 @@ fn run() -> Result<()> {
             let config = load_config(&cli.config)?;
             let apps_to_unlink = resolve_apps(&config, apps, *all)?;
 
-            for app_name in apps_to_unlink {
+            for app_id in apps_to_unlink {
                 let app_config = config
-                    .get_app(app_name)
+                    .get_app(app_id)
                     .context("App not found in config")?;
 
                 if cli.verbose {
                     println!("\nUnlinking app: {}", app_config.name);
                 }
 
-                unlink_app(&config, app_name, app_config, *keep_files, cli.verbose)?;
+                unlink_app(&config, app_id, app_config, *keep_files, cli.verbose)?;
             }
         }
 
@@ -111,11 +111,11 @@ fn run() -> Result<()> {
             let config = load_config(&cli.config)?;
 
             match app {
-                Some(app_name) => {
-                    if let Some(app_config) = config.get_app(app_name) {
+                Some(app_id) => {
+                    if let Some(app_config) = config.get_app(app_id) {
                         print_app_links(app_config);
                     } else {
-                        println!("App not found: {}", app_name);
+                        println!("App not found: {}", app_id);
                     }
                 }
                 None => {
@@ -152,8 +152,8 @@ fn run() -> Result<()> {
                 apps.clone()
             };
 
-            for app_name in &apps_to_repair {
-                if let Some(app_config) = config.get_app(app_name) {
+            for app_id in &apps_to_repair {
+                if let Some(app_config) = config.get_app(app_id) {
                     repair_app(&config, app_config, *force, cli.verbose)?;
                 }
             }
@@ -189,7 +189,7 @@ fn resolve_apps<'a>(config: &'a Config, apps: &'a [String], all: bool) -> Result
 
 fn link_app(
     config: &Config,
-    app_name: &str,
+    app_id: &str,
     app_config: &AppConfig,
     dry_run: bool,
     force: bool,
@@ -199,7 +199,7 @@ fn link_app(
 
     for source in &app_config.sources {
         let source_path_str = PathResolver::expand(&source.source);
-        let target_relative = format!("{}/{}", app_name, source.target);
+        let target_relative = format!("{}/{}", app_config.name, source.target);
         let target_path = Workspace::resolve_target(workspace_path, &target_relative);
 
         if verbose {
@@ -241,7 +241,7 @@ fn link_app(
             }
             Err(_) => {
                 sp.stop();
-                anyhow::bail!("Failed to link {}:{}", app_name, source.source);
+                anyhow::bail!("Failed to link {}:{}", app_id, source.source);
             }
         }
     }
@@ -251,7 +251,7 @@ fn link_app(
 
 fn unlink_app(
     config: &Config,
-    app_name: &str,
+    app_id: &str,
     app_config: &AppConfig,
     keep_files: bool,
     verbose: bool,
@@ -262,7 +262,7 @@ fn unlink_app(
         let source_path = PathResolver::resolve_if_exists(&source.source)
             .unwrap_or_else(|| PathResolver::expand(&source.source).into());
 
-        let target_relative = format!("{}/{}", app_name, source.target);
+        let target_relative = format!("{}/{}", app_config.name, source.target);
         let target_path = Workspace::resolve_target(workspace_path, &target_relative);
 
         if verbose {
@@ -271,7 +271,7 @@ fn unlink_app(
         }
 
         link_ops::LinkOps::unlink(&source_path, &target_path, keep_files, verbose)
-            .with_context(|| format!("Failed to unlink {}:{}", app_name, source.source))?;
+            .with_context(|| format!("Failed to unlink {}:{}", app_id, source.source))?;
     }
 
     Ok(())
@@ -310,11 +310,7 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
 
     for source in &app_config.sources {
         let source_path: std::path::PathBuf = PathResolver::expand(&source.source).into();
-        let target_relative = format!(
-            "{}/{}",
-            app_config.name.replace(" ", "_").to_lowercase(),
-            source.target
-        );
+        let target_relative = format!("{}/{}", app_config.name, source.target);
         let target_path = Workspace::resolve_target(workspace_path, &target_relative);
         let status = link_ops::LinkOps::check_status(&source_path, &target_path);
 

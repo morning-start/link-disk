@@ -1,11 +1,11 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
 pub struct Workspace;
 
 impl Workspace {
-    pub fn init(path: &PathBuf) -> Result<PathBuf> {
+    pub fn init(path: &Path) -> Result<PathBuf> {
         if !path.exists() {
             std::fs::create_dir_all(path)
                 .with_context(|| format!("Failed to create workspace directory: {:?}", path))?;
@@ -19,7 +19,8 @@ impl Workspace {
 
         let config_file = config_dir.join("config.toml");
         let workspace_path_str = path.to_string_lossy().replace("\\", "/");
-        let default_config = format!(r#"# link-disk 配置文件
+        let default_config = format!(
+            r#"# link-disk 配置文件
 # on_exists: skip | overwrite | fail
 #   - skip: 不处理已存在的链接
 #   - overwrite: 覆盖已存在的链接
@@ -54,19 +55,21 @@ on_exists = "skip"
 source = "<home>/AppData/Local/Google/Chrome"
 target = "chrome/Local"
 link_type = "symlink"
-"#, workspace_path_str);
+"#,
+            workspace_path_str
+        );
 
         if !config_file.exists() {
-            std::fs::write(&config_file, default_config)
-                .with_context(|| format!("Failed to create default config file: {:?}", config_file))?;
+            std::fs::write(&config_file, default_config).with_context(|| {
+                format!("Failed to create default config file: {:?}", config_file)
+            })?;
         }
 
-        Ok(path.clone())
+        Ok(std::path::PathBuf::from(path))
     }
 
     pub fn config_dir() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .context("Failed to get home directory")?;
+        let home = dirs::home_dir().context("Failed to get home directory")?;
 
         Ok(home.join(".link-disk"))
     }
@@ -76,15 +79,19 @@ link_type = "symlink"
     }
 
     pub fn expand_path(path: &str) -> PathBuf {
-        if path.starts_with("~") {
-            if let Some(home) = dirs::home_dir() {
-                return home.join(path.trim_start_matches("~").trim_start_matches('/').trim_start_matches('\\'));
-            }
+        if path.starts_with("~")
+            && let Some(home) = dirs::home_dir()
+        {
+            return home.join(
+                path.trim_start_matches("~")
+                    .trim_start_matches('/')
+                    .trim_start_matches('\\'),
+            );
         }
         PathBuf::from(path)
     }
 
-    pub fn resolve_target(workspace: &PathBuf, relative: &str) -> PathBuf {
+    pub fn resolve_target(workspace: &Path, relative: &str) -> PathBuf {
         let normalized = relative.replace("/", "\\");
         workspace.join(&normalized)
     }

@@ -18,8 +18,37 @@ impl Workspace {
         }
 
         let config_file = config_dir.join("config.toml");
+        let workspace_path_str = path.to_string_lossy().replace("\\", "/");
+        let default_config = format!(r#"# link-disk 配置文件
+
+[workspace]
+path = "{}"
+
+[apps.vscode]
+name = "VSCode"
+on_exists = "skip"
+
+[[apps.vscode.sources]]
+source = "<home>/AppData/Roaming/Code"
+target = "vscode/Roaming"
+link_type = "symlink"
+
+[[apps.vscode.sources]]
+source = "<home>/.vscode"
+target = "vscode/config"
+link_type = "symlink"
+
+[apps.chrome]
+name = "Chrome"
+on_exists = "skip"
+
+[[apps.chrome.sources]]
+source = "<home>/AppData/Local/Google/Chrome"
+target = "chrome/Local"
+link_type = "symlink"
+"#, workspace_path_str);
+
         if !config_file.exists() {
-            let default_config = include_str!("../config-example.toml");
             std::fs::write(&config_file, default_config)
                 .with_context(|| format!("Failed to create default config file: {:?}", config_file))?;
         }

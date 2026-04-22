@@ -1,8 +1,10 @@
-# link-disk 配置文件
+# link-disk 配置文件示例
+# 复制此文件到 ~/.link-disk/config.toml 并根据需要修改
 
 [workspace]
 path = "D:/link-disk-workspace"
 
+# ============ VSCode ============
 [apps.vscode]
 name = "VSCode"
 on_exists = "skip"
@@ -17,6 +19,7 @@ source = "<home>/.vscode"
 target = "vscode/config"
 link_type = "symlink"
 
+# ============ Chrome ============
 [apps.chrome]
 name = "Chrome"
 on_exists = "skip"
@@ -24,4 +27,9 @@ on_exists = "skip"
 [[apps.chrome.sources]]
 source = "<home>/AppData/Local/Google/Chrome"
 target = "chrome/Local"
+link_type = "symlink"
+
+[[apps.chrome.sources]]
+source = "<home>/AppData/Roaming/Google/Chrome"
+target = "chrome/Roaming"
 link_type = "symlink"

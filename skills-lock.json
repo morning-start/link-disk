@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "skills": {
+    "code-optimizer": {
+      "source": "morning-start/dev-skills",
+      "sourceType": "github",
+      "computedHash": "b66aab045a6e5415d796bece94ac1d80c4a8c4807532f9e982b82c3c936c0b7b"
+    },
+    "rust-skills": {
+      "source": "morning-start/book-skills",
+      "sourceType": "github",
+      "computedHash": "9b09b78a4d2d1b6264efb1df72538d957e2c410ea45115bb3720f3d6180718cd"
+    },
+    "software-design": {
+      "source": "morning-start/dev-skills",
+      "sourceType": "github",
+      "computedHash": "3aa0e02315e4cacd7328a1f2f7b68613473d8316dbfe4604503fcc32e6163063"
+    }
+  }
+}

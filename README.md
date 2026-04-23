@@ -24,7 +24,7 @@ cargo build --release
 
 ### 环境要求
 
-- Rust 1.75+
+- Rust 2024 Edition
 - Windows: 需要管理员权限创建符号链接
 
 ## 快速开始
@@ -51,21 +51,31 @@ path = "D:/link-disk-workspace"
 
 [apps.vscode]
 name = "VSCode"
+enabled = true
 on_exists = "skip"
 
 [[apps.vscode.sources]]
 source = "<home>/AppData/Roaming/Code"
-target = "vscode/Roaming"
+target = "Roaming"
 link_type = "symlink"
+_source_type = "dir"
+
+[[apps.vscode.sources]]
+source = "<home>/.vscode"
+target = "config"
+link_type = "symlink"
+_source_type = "dir"
 
 [apps.chrome]
 name = "Chrome"
+enabled = true
 on_exists = "skip"
 
 [[apps.chrome.sources]]
 source = "<home>/AppData/Local/Google/Chrome"
-target = "chrome/Local"
+target = "Local"
 link_type = "symlink"
+_source_type = "dir"
 ```
 
 ### 3. 创建链接
@@ -104,6 +114,13 @@ link-disk unlink vscode --force
 ```
 
 ## 命令详解
+
+### 全局参数
+
+```bash
+-v, --verbose    详细输出
+-c, --config     指定配置文件路径（默认: ~/.link-disk/config.toml）
+```
 
 ### init - 初始化
 
@@ -190,6 +207,8 @@ OPTIONS:
 | `<desktop>` | 桌面目录 | `C:\Users\用户名\Desktop` |
 | `<downloads>` | 下载目录 | `C:\Users\用户名\Downloads` |
 | `<temp>` | 临时目录 | `C:\Users\用户名\AppData\Local\Temp` |
+| `<programfiles>` | 程序文件目录 | `C:\Program Files` |
+| `<programfilesx86>` | 程序文件目录(x86) | `C:\Program Files (x86)` |
 
 ### on_exists 策略
 
@@ -206,6 +225,16 @@ OPTIONS:
 |----|------|--------|
 | `symlink` | 符号链接（软链接） | 支持 |
 | `hardlink` | 硬链接 | 不支持（仅同分区） |
+
+### 链接状态
+
+| 状态 | 说明 |
+|------|------|
+| `linked` | 链接正常 |
+| `broken` | 链接损坏（目标不存在） |
+| `both_exist` | 源和目标都存在 |
+| `source_only` | 只有源存在 |
+| `target_only` | 只有目标存在 |
 
 ## 工作原理
 

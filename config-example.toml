@@ -4,32 +4,30 @@
 [workspace]
 path = "D:/link-disk-workspace"
 
-# ============ VSCode ============
 [apps.vscode]
 name = "VSCode"
+enabled = true
 on_exists = "skip"
 
 [[apps.vscode.sources]]
 source = "<home>/AppData/Roaming/Code"
-target = "vscode/Roaming"
+target = "Roaming"
 link_type = "symlink"
+_source_type = "dir"
 
 [[apps.vscode.sources]]
 source = "<home>/.vscode"
-target = "vscode/config"
+target = "config"
 link_type = "symlink"
+_source_type = "dir"
 
-# ============ Chrome ============
 [apps.chrome]
 name = "Chrome"
+enabled = true
 on_exists = "skip"
 
 [[apps.chrome.sources]]
 source = "<home>/AppData/Local/Google/Chrome"
-target = "chrome/Local"
+target = "Local"
 link_type = "symlink"
-
-[[apps.chrome.sources]]
-source = "<home>/AppData/Roaming/Google/Chrome"
-target = "chrome/Roaming"
-link_type = "symlink"
+_source_type = "dir"

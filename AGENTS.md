@@ -108,6 +108,7 @@ link-disk/
 │   └── error.rs             # 统一错误处理
 ├── docs/
 │   ├── architecture.md      # 项目架构文档
+│   ├── workflows.md         # 业务流程和场景图
 │   ├── config.md            # 配置文件说明
 │   └── manual.md            # 使用手册
 ├── tests/

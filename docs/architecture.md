@@ -232,11 +232,6 @@ impl PathResolver {
 **关键类型:**
 
 ```rust
-pub enum LinkType {
-    Symlink,
-    Hardlink,
-}
-
 pub enum OnExists {
     Skip,      // 跳过
     Merge,     // 合并
@@ -249,6 +244,7 @@ pub struct LinkRequest {
     pub target: PathBuf,
     pub link_type: LinkType,
     pub on_exists: OnExists,
+    pub force: bool,
 }
 
 pub struct LinkOps;
@@ -273,185 +269,18 @@ impl LinkOps {
 
 ---
 
-## 4. 数据流
+## 4. 业务流程
 
-### 4.1 link 命令主流程
+业务流程、使用场景和状态流转图已移至独立的 [业务流程文档](workflows.md)。
 
-```mermaid
-flowchart TD
-    START([开始 link 命令]) --> LOAD_CONFIG[加载配置文件]
-    LOAD_CONFIG --> PARSE_APPS{解析应用列表}
-    PARSE_APPS -->|指定应用| GET_APP[获取指定应用配置]
-    PARSE_APPS -->|--all| GET_ALL_APPS[获取所有已配置应用]
-    GET_APP --> EXPAND_PATHS
-    GET_ALL_APPS --> EXPAND_PATHS[展开路径占位符]
-    EXPAND_PATHS --> BUILD_REQUEST[构建 LinkRequest]
-    BUILD_REQUEST --> LINK_OPS[调用 LinkOps::link]
-    LINK_OPS --> CHECK_SYMLINK{source 是符号链接?}
-    CHECK_SYMLINK -->|是| CHECK_FORCE{force=true?}
-    CHECK_SYMLINK -->|否| CHECK_SOURCE_EXISTS
-    CHECK_FORCE -->|是| REMOVE_SYMLINK[删除现有符号链接]
-    REMOVE_SYMLINK --> CHECK_SOURCE_EXISTS
-    CHECK_FORCE -->|否| CHECK_SYMLINK_TARGET{目标是否正确?}
-    CHECK_SYMLINK_TARGET -->|是| ALREADY_LINKED[返回: 已链接]
-    CHECK_SYMLINK_TARGET -->|否| ERROR_WRONG_TARGET[报错: 指向错误目标]
-    CHECK_SOURCE_EXISTS -->|存在| CHECK_TARGET_EXISTS
-    CHECK_SOURCE_EXISTS -->|不存在| ENSURE_PARENT[确保父目录存在]
-    CHECK_TARGET_EXISTS -->|存在| ON_EXISTS_STRATEGY{on_exists 策略}
-    CHECK_TARGET_EXISTS -->|不存在| MOVE_SOURCE[移动 source 到 target]
-    ON_EXISTS_STRATEGY -->|Skip| SKIP[跳过 - 保持现状]
-    ON_EXISTS_STRATEGY -->|Replace| REMOVE_TARGET[删除 target]
-    ON_EXISTS_STRATEGY -->|Merge| MERGE_DIRS[合并目录]
-    ON_EXISTS_STRATEGY -->|Overwrite| REMOVE_SOURCE[删除 source]
-    REMOVE_TARGET --> MOVE_SOURCE
-    MERGE_DIRS --> END
-    REMOVE_SOURCE --> END([结束])
-    ENSURE_PARENT --> CREATE_SYMLINK
-    MOVE_SOURCE --> CREATE_SYMLINK[创建符号链接]
-    CREATE_SYMLINK --> END
-    SKIP --> END
-    ALREADY_LINKED --> END
-```
-
-**图 4.1: link 命令主流程**
-
-### 4.2 source 符号链接检查流程 (force 逻辑)
-
-```mermaid
-flowchart TD
-    START([开始: source.is_symlink]) --> CHECK_FORCE{force 选项}
-    CHECK_FORCE -->|true| REMOVE_LINK[FsUtils::remove_if_exists<br/>删除符号链接]
-    CHECK_FORCE -->|false| CHECK_TARGET{读取链接目标}
-    REMOVE_LINK --> CONTINUE[继续处理<br/>视为无 source]
-    CHECK_TARGET -->|读取成功| NORMALIZE_PATHS[规范化路径比较]
-    CHECK_TARGET -->|读取失败| ERROR_READ_LINK[报错: 无法读取链接]
-    NORMALIZE_PATHS --> COMPARE{normalized_linked<br/>==<br/>normalized_target}
-    COMPARE -->|是 - 相同| RETURN_LINKED[返回: Already Linked<br/>跳过操作]
-    COMPARE -->|否 - 不同| ERROR_DIFFERENT[报错: 指向不同目标<br/>使用 --force 强制处理]
-    RETURN_LINKED --> END([结束])
-    ERROR_READ_LINK --> END
-    ERROR_DIFFERENT --> END
-    CONTINUE --> END
-```
-
-**图 4.2: source 符号链接检查与 force 处理流程**
-
-### 4.3 on_exists 策略处理流程
-
-```mermaid
-flowchart LR
-    subgraph ONEXISTS[on_exists 策略]
-        direction TB
-        SKIP[Skip<br/>跳过]
-        REPLACE[Replace<br/>删除目标]
-        MERGE[Merge<br/>合并目录]
-        OVERWRITE[Overwrite<br/>删除源]
-    end
-
-    ONEXISTS --> RESULT[结果]
-
-    style SKIP fill:#dcfce7
-    style REPLACE fill:#fef3c7
-    style MERGE fill:#dbeafe
-    style OVERWRITE fill:#fee2e2
-```
-
-```mermaid
-flowchart TD
-    START([开始: source 和 target 都存在]) --> CHECK_STRATEGY{on_exists 策略}
-    CHECK_STRATEGY -->|Skip| RETURN_SKIP[返回: 跳过操作]
-    CHECK_STRATEGY -->|Replace| DELETE_TARGET[删除 target 目录]
-    CHECK_STRATEGY -->|Merge| MERGE_LOOP{遍历 source 目录}
-    CHECK_STRATEGY -->|Overwrite| DELETE_SOURCE[删除 source 目录]
-    DELETE_TARGET --> CONTINUE[继续移动 source]
-    DELETE_SOURCE --> CONTINUE2[结束 - 不移动]
-    MERGE_LOOP -->|子目录| MERGE_LOOP
-    MERGE_LOOP -->|文件不存在于 target| COPY_FILE[复制文件到 target]
-    MERGE_LOOP -->|文件已存在| SKIP_FILE[跳过文件]
-    MERGE_LOOP -->|遍历完成| DELETE_SOURCE_DIR[删除 source 目录]
-    COPY_FILE --> MERGE_LOOP
-    SKIP_FILE --> MERGE_LOOP
-    DELETE_SOURCE_DIR --> END([结束])
-    CONTINUE --> END
-    CONTINUE2 --> END
-    RETURN_SKIP --> END
-```
-
-**图 4.3: on_exists 策略处理流程**
-
-### 4.4 unlink 命令执行流程
-
-```mermaid
-flowchart TD
-    START([开始 unlink 命令]) --> CHECK_SYMLINK{source 是符号链接?}
-    CHECK_SYMLINK -->|是| REMOVE_LINK[FsUtils::remove_if_exists<br/>删除符号链接]
-    CHECK_SYMLINK -->|否| CHECK_EXISTS{source 存在?}
-    REMOVE_LINK --> CHECK_KEEP_FILES{keep_files?}
-    CHECK_KEEP_FILES -->|true| END_SKIP[结束 - 保留文件]
-    CHECK_KEEP_FILES -->|false| MOVE_BACK[move_back<br/>移动文件回原位置]
-    CHECK_EXISTS -->|不存在| CHECK_TARGET{target 存在?}
-    CHECK_EXISTS -->|存在| ERROR_NOT_SYMLINK[报错: 不是符号链接]
-    CHECK_TARGET -->|存在且 keep_files=false| MOVE_BACK
-    CHECK_TARGET -->|不存在| END_OK[结束 - 无需操作]
-    MOVE_BACK --> COPY_DIR[FsUtils::copy_dir_recursive]
-    COPY_DIR --> REMOVE_SOURCE[FsUtils::remove_if_exists<br/>删除临时文件]
-    REMOVE_SOURCE --> END_OK
-    ERROR_NOT_SYMLINK --> END_ERROR([结束 - 报错])
-    END_OK --> END_SUCCESS([结束 - 成功])
-    END_SKIP --> END_SUCCESS
-```
-
-**图 4.4: unlink 命令执行流程**
-
-### 4.5 repair 命令执行流程
-
-```mermaid
-flowchart TD
-    START([开始 repair 命令]) --> FOR_EACH_SOURCE{遍历每个 source}
-    FOR_EACH_SOURCE --> CHECK_STATUS[调用 LinkOps::check_status]
-    CHECK_STATUS --> GET_STATUS{status 结果}
-    GET_STATUS -->|broken| REPAIR_BROKEN[修复断开的链接]
-    GET_STATUS -->|target_only| CHECK_FORCE{force?}
-    GET_STATUS -->|其他| SKIP_STATUS[跳过 - 状态正常]
-    REPAIR_BROKEN --> REMOVE_BROKEN_LINK[FsUtils::remove_if_exists<br/>删除断开链接]
-    REMOVE_BROKEN_LINK --> REPAIR_LINK[重新创建链接]
-    REPAIR_LINK --> FOR_EACH_SOURCE
-    CHECK_FORCE -->|true| CREATE_LINK_FORCE[FsUtils::create_symlink<br/>强制创建链接]
-    CHECK_FORCE -->|false| PRINT_FORCE_HINT[提示: 使用 --force 创建链接]
-    CREATE_LINK_FORCE --> FOR_EACH_SOURCE
-    PRINT_FORCE_HINT --> FOR_EACH_SOURCE
-    SKIP_STATUS --> FOR_EACH_SOURCE
-    FOR_EACH_SOURCE -->|完成| END([结束])
-```
-
-**图 4.5: repair 命令执行流程**
-
-### 4.6 链接状态流转图
-
-```mermaid
-stateDiagram-v2
-    [*] --> none: 初始状态
-    none --> source_only: source 存在<br/>target 不存在
-    none --> linked: 创建链接成功
-    source_only --> linked: 链接创建成功
-    linked --> broken: target 被删除
-    broken --> linked: repair 命令
-    source_only --> both_exist: target 也存在
-    both_exist --> linked: 删除 source<br/>保留 target
-    both_exist --> source_only: 删除 target<br/>保留 source
-    linked --> none: unlink 命令
-    broken --> none: repair 命令<br/>删除链接
-    state linked {
-        [*] --> ValidLink
-        ValidLink --> ValidLink: 状态检查
-    }
-    state broken {
-        [*] --> BrokenLink
-        BrokenLink --> BrokenLink: 状态检查
-    }
-```
-
-**图 4.6: 链接状态流转图**
+该文档包含：
+- link 命令主流程
+- 符号链接检查流程 (force 逻辑)
+- on_exists 策略处理流程
+- unlink 命令执行流程
+- repair 命令执行流程
+- 链接状态流转图
+- 使用示例和故障排除
 
 ---
 

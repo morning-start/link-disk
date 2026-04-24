@@ -3,7 +3,7 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "link-disk")]
 #[command(author = "Your Name")]
-#[command(version = "1.0.0")]
+#[command(version)]
 #[command(about = "Move folders and link them back", long_about = None)]
 pub struct Cli {
     #[arg(short, long, global = true)]

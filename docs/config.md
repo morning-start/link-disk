@@ -82,9 +82,10 @@ path = "D:/link-disk-workspace"
 
 | 值 | 说明 |
 |----|------|
-| `skip` | 如果目标已存在，跳过此操作 |
-| `merge` | 合并源内容到目标 |
-| `replace` | 替换目标（删除旧数据） |
+| `skip` | 如果目标已存在，跳过此操作（默认） |
+| `merge` | 合并源内容到目标，删除源目录，直接创建链接 |
+| `overwrite` | 删除源，保留目标，直接创建链接 |
+| `replace` | 删除目标，移动源到目标位置，创建链接 |
 
 ### 3.3 [[apps.应用名.sources]] 源配置
 
@@ -93,8 +94,9 @@ path = "D:/link-disk-workspace"
 | 字段 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `source` | 字符串 | ✅ | 源文件夹路径，支持占位符 |
-| `target` | 字符串 | ✅ | 目标子路径（相对于 workspace.path） |
+| `target` | 字符串 | ✅ | 目标子路径（相对于 workspace.path，实际会拼接 `{app_name}/{target}`） |
 | `link_type` | 枚举 | ❌ | 链接类型，默认 `symlink` |
+| `_source_type` | 字符串 | ❌ | 源类型标识，默认 `dir`（预留字段） |
 
 **link_type 可选值：**
 
@@ -139,17 +141,20 @@ source = "<localappdata>/Google/Chrome"
 
 ### 5.1 源路径解析
 
+> **注意:** target 实际解析时会自动拼接应用名称前缀，即 `{workspace.path}/{app_name}/{target}`
+
 配置：
 ```toml
 source = "<home>/AppData/Roaming/Code"
 target = "vscode/Roaming"
 workspace.path = "D:/link-disk-workspace"
+app name = "VSCode"
 ```
 
 解析结果：
 ```
-源路径: C:/Users/YourName/AppData/Roaming/Code
-目标路径: D:/link-disk-workspace/vscode/Roaming
+源路径: C:\Users\YourName\AppData\Roaming\Code
+目标路径: D:\link-disk-workspace\VSCode\vscode\Roaming
 ```
 
 ### 5.2 多源配置解析
@@ -167,13 +172,13 @@ source = "<home>/AppData/Local/Example"
 target = "example/Local"
 ```
 
-解析结果：
+解析结果（假设 app name = "Example App"）：
 ```
-源1: C:/Users/YourName/Documents/Example
-目标1: D:/link-disk-workspace/example/Documents
+源1: C:\Users\YourName\Documents\Example
+目标1: D:\link-disk-workspace\Example App\example\Documents
 
-源2: C:/Users/YourName/AppData/Local/Example
-目标2: D:/link-disk-workspace/example/Local
+源2: C:\Users\YourName\AppData\Local\Example
+目标2: D:\link-disk-workspace\Example App\example\Local
 ```
 
 ---
@@ -247,15 +252,20 @@ source = "<home>/AppData/Roaming/Microsoft/Teams"
 
 ### 7.3 相对路径
 
-target 路径是相对于 workspace.path 的相对路径：
+target 路径是相对于 workspace.path 的相对路径，实际会拼接为 `{workspace.path}/{app_name}/{target}`：
 ```toml
 workspace.path = "D:/link-disk-workspace"
-target = "vscode/Roaming"  # → D:/link-disk-workspace/vscode/Roaming
+app name = "VSCode"
+target = "vscode/Roaming"  # → D:\link-disk-workspace\VSCode\vscode\Roaming
 ```
 
 ### 7.4 Windows 权限问题
 
-某些系统文件夹（如 `C:\Program Files`）需要管理员权限才能创建链接。建议：
-- 配置文件存放在用户目录下
-- 使用软链接而非硬链接
+创建符号链接在 Windows 上需要管理员权限或启用开发者模式。建议：
+- 以管理员身份运行终端，或启用 Windows 开发者模式
+- 使用硬链接（不需要特殊权限，但仅限同分区）
 - 转移目标优先选择用户可写的文件夹
+
+### 7.5 应用名称与路径拼接
+
+代码中 target 实际路径为 `{workspace.path}/{app_config.name}/{target}`，其中 `app_config.name` 是配置中 `name` 字段的值（非 `[apps.xxx]` 中的键名）。配置 target 时请注意不要与 name 产生冗余路径。

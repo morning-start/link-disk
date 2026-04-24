@@ -75,9 +75,9 @@
 ```rust
 enum OnExists {
     Skip,      // 跳过，存在则不操作
-    Merge,     // 合并内容
-    Overwrite, // 覆盖 (删除源)
-    Replace,   // 替换目标
+    Merge,     // 合并内容后删除源目录，跳过 move，直接创建链接
+    Overwrite, // 删除源，跳过 move，直接创建链接
+    Replace,   // 删除目标，移动源到目标位置，创建链接
 }
 ```
 
@@ -121,6 +121,8 @@ enum LinkDiskError {
     Path(String),
     Link(String),
 }
+// 已实现: Display, Debug, From<io::Error>
+// 包含: validate_path() 工具函数
 ```
 
 #### 3.2 跨平台支持 ✅
@@ -179,6 +181,7 @@ link-disk init --template vscode
 | Clippy | ✅ 零警告 | cargo clippy 无警告 |
 | 架构设计 | ✅ 良好 | 分层清晰，SOLID 合规 |
 | 代码重复 | ✅ 无 | fs_utils 统一封装 |
+| 依赖管理 | ✅ 正常 | clap/toml/serde/anyhow/dirs/spinners |
 
 ---
 

@@ -89,13 +89,13 @@ main.rs
 // cli.rs
 struct Cli {
     command: Commands,
-    config: Option<String>,
+    config: Option<String>,     // 默认 ~/.link-disk/config.toml
     verbose: bool,
 }
 
 enum Commands {
     Init { path: Option<String>, force: bool },
-    Link { apps: Vec<String>, all: bool, dry_run: bool },
+    Link { apps: Vec<String>, all: bool, dry_run: bool, force: bool },
     Unlink { apps: Vec<String>, all: bool, force: bool, keep_files: bool },
     List { app: Option<String> },
     Status { apps: Vec<String> },
@@ -117,26 +117,26 @@ enum Commands {
 ```rust
 // 配置结构
 pub struct Config {
-    pub workspace: WorkspaceConfig,
+    pub workspace: Workspace,
     pub apps: HashMap<String, AppConfig>,
 }
 
-pub struct WorkspaceConfig {
+pub struct Workspace {
     pub path: PathBuf,
 }
 
 pub struct AppConfig {
     pub name: String,
-    pub enabled: bool,
-    pub on_exists: String,
+    pub enabled: bool,          // 默认 true
+    pub on_exists: Option<String>, // 可选，默认 "skip"
     pub sources: Vec<Source>,
 }
 
 pub struct Source {
     pub source: String,
     pub target: String,
-    pub link_type: String,
-    pub _source_type: String,  // 预留字段
+    pub link_type: String,      // 默认 "symlink"
+    pub _source_type: String,   // 默认 "dir"，源类型标识
 }
 ```
 
@@ -205,13 +205,13 @@ impl PathResolver {
 
 | 函数 | 签名 | 说明 |
 |------|------|------|
-| `copy_dir_recursive` | `(src: &Path, dst: &Path) -> Result<()>` | 递归复制目录 |
-| `move_dir_cross_filesystem` | `(src: &Path, dst: &Path) -> Result<()>` | 跨分区移动目录 |
-| `normalize_path` | `(path: &Path) -> String` | 规范化路径 (统一斜杠,小写) |
+| `copy_dir_recursive` | `(src: &Path, dst: &Path) -> Result<()>` | 递归复制目录（含文件） |
+| `move_dir_cross_filesystem` | `(src: &Path, dst: &Path) -> Result<()>` | 跨分区移动（复制后删除源） |
+| `normalize_path` | `(path: &Path) -> String` | 规范化路径（统一正斜杠，小写） |
 | `ensure_parent_exists` | `(path: &Path) -> Result<()>` | 确保父目录存在 |
-| `remove_if_exists` | `(path: &Path, verbose: bool) -> Result<()>` | 安全删除文件/目录 |
+| `remove_if_exists` | `(path: &Path, verbose: bool) -> Result<()>` | 安全删除（自动判断文件/目录/符号链接） |
 | `rename` | `(src: &Path, dst: &Path) -> Result<()>` | 重命名/移动文件 |
-| `create_symlink` | `(target: &Path, link: &Path) -> Result<()>` | 创建符号链接 |
+| `create_symlink` | `(target: &Path, link: &Path) -> Result<()>` | 创建符号链接（自动区分文件/目录） |
 | `read_link` | `(path: &Path) -> Option<PathBuf>` | 读取链接目标 |
 | `hard_link` | `(target: &Path, link: &Path) -> Result<()>` | 创建硬链接 |
 
@@ -233,10 +233,10 @@ impl PathResolver {
 
 ```rust
 pub enum OnExists {
-    Skip,      // 跳过
-    Merge,     // 合并
-    Overwrite, // 覆盖 (删除源)
-    Replace,   // 替换 (删除目标)
+    Skip,      // 跳过 - 目标已存在时不操作
+    Merge,     // 合并 - 合并源到目标后删除源，跳过 move，直接创建链接
+    Overwrite, // 覆盖 - 删除源，跳过 move，直接创建链接
+    Replace,   // 替换 - 删除目标，移动源到目标，创建链接
 }
 
 pub struct LinkRequest {
@@ -289,7 +289,7 @@ impl LinkOps {
 ### 5.1 错误类型
 
 ```rust
-// error.rs (预留)
+// error.rs (已定义，当前使用 anyhow 替代)
 pub enum LinkDiskError {
     Io(std::io::Error),
     Config(String),
@@ -298,6 +298,9 @@ pub enum LinkDiskError {
 }
 
 pub type Result<T> = std::result::Result<T, LinkDiskError>;
+
+// 包含 validate_path() 工具函数
+// 实现了 Display, Debug, From<io::Error>
 ```
 
 ### 5.2 错误传播
@@ -305,20 +308,25 @@ pub type Result<T> = std::result::Result<T, LinkDiskError>;
 ```
 FsUtils (anyhow::Result)
     │
-    ├── Context: 提供操作上下文
-    └── ? 操作符传播
+    ├── .with_context() 为 IO 操作添加上下文描述
+    └── ? 操作符向上传播
             │
             ▼
     LinkOps (anyhow::Result)
             │
+            ├── .with_context() 为链接操作添加上下文
+            └── ? 操作符向上传播
+            │
             ▼
     main.rs (anyhow::Result)
             │
+            └── ? 操作符传播
+            │
             ▼
-    main() -> eprintln!(); std::process::exit(1)
+    main() -> eprintln!("Error: {}", e); std::process::exit(1)
 ```
 
-**当前实现:** 使用 `anyhow::Result` 统一错误处理，简化错误传播。
+**当前实现:** 使用 `anyhow::Result` 统一错误处理，通过 `.with_context()` 为底层 IO 错误添加可读的操作描述，简化错误传播。
 
 ---
 
@@ -350,13 +358,16 @@ FsUtils (anyhow::Result)
 
 ### 7.3 路径规范化
 
-所有路径统一使用正斜杠 `/`，Rust 标准库会正确处理：
+路径比较时统一使用正斜杠 `/` 并转小写，确保跨平台一致性：
 
 ```rust
 pub fn normalize_path(path: &Path) -> String {
     path.to_string_lossy().replace("\\", "/").to_lowercase()
 }
 ```
+
+**注意:** `PathResolver::replace_placeholders` 内部将 `/` 替换为 `\\`（Windows 风格），
+而 `Workspace::resolve_target` 也将 `/` 替换为 `\\` 后拼接。规范化仅在路径比较时使用。
 
 ---
 
@@ -368,9 +379,9 @@ pub fn normalize_path(path: &Path) -> String {
 |------|------|
 | **单一职责** | 每个模块职责清晰: Config 解析配置, Workspace 管路径, FsUtils 原子操作 |
 | **开放封闭** | LinkType, OnExists 枚举易于扩展新变体 |
-| **里氏替换** | 所有函数使用 `&Path` 而非 `&PathBuf` |
-| **接口隔离** | FsUtils 提供 9 个小而专注的方法 |
-| **依赖倒置** | LinkOps 依赖 FsUtils 抽象, main 依赖 LinkOps 抽象 |
+| **里氏替换** | 公共函数接受 `&Path` 而非 `&PathBuf`，更通用 |
+| **接口隔离** | FsUtils 提供 9 个小而专注的原子方法 |
+| **依赖倒置** | LinkOps 编排 FsUtils，main 协调 LinkOps |
 
 ### 8.2 分层原则
 
@@ -422,4 +433,17 @@ if let Some(path) = dirs::new_dir_function() {
 
 ### 10.3 添加新链接策略
 
-在 `link_ops.rs` 的 `OnExists` 枚举中添加新变体，并实现相应逻辑。
+在 `link_ops.rs` 的 `OnExists` 枚举中添加新变体，更新 `from_str` 匹配，并在 `link` 方法的 `match request.on_exists` 分支中实现相应逻辑。
+
+### 10.4 添加新依赖
+
+在 `Cargo.toml` 的 `[dependencies]` 中添加，当前主要依赖：
+
+| 依赖 | 版本 | 用途 |
+|------|------|------|
+| `clap` | 4.5 (derive) | CLI 参数解析 |
+| `toml` | 0.8 | 配置文件解析 |
+| `serde` | 1.0 (derive) | 序列化/反序列化 |
+| `anyhow` | 1.0 | 错误处理 |
+| `dirs` | 5.0 | 系统目录路径 |
+| `spinners` | 4.1 | 终端进度指示器 |

@@ -105,13 +105,14 @@ link-disk link [应用名...] [选项]
 |------|------|
 | `--dry-run` | 模拟运行，不实际执行操作 |
 | `--verbose` | 显示详细信息 |
+| `--force` | 强制处理（删除已存在的软链接后重新链接） |
 
 **link 逻辑说明：**
 
 | 情况                         | 处理方式                                                      |
 | ---------------------------- | ------------------------------------------------------------- |
 | source 存在，target 不存在   | 移动 source → target，创建链接                                |
-| source 存在，target 存在     | 根据 on_exists 处理（skip/merge/replace），然后移动并创建链接 |
+| source 存在，target 存在     | 根据 on_exists 策略处理冲突，然后移动（如需要）并创建链接     |
 | source 不存在，target 不存在 | 创建 target 目录，创建链接                                    |
 | source 不存在，target 存在   | 直接创建链接                                                  |
 | source 已是正确链接          | 跳过，显示 "Already linked"                                   |
@@ -121,12 +122,12 @@ link-disk link [应用名...] [选项]
 
 当 target 已存在文件或文件夹时的处理策略：
 
-| 选项        | 说明                                       | 适用场景                               |
-| ----------- | ------------------------------------------ | -------------------------------------- |
-| `skip`      | 跳过该 source，不做任何操作                | 保留 target 的现有数据，避免覆盖       |
-| `merge`     | 合并 source 和 target 的文件，然后创建链接 | 以 target 为准，以 source 补充         |
-| `overwrite` | 删除 source，保留 target                   | 确认 source 数据不再需要               |
-| `replace`   | 删除 target，强制移动 source 到 target     | 确认 target 数据不再需要，可以完全替换 |
+| 选项        | 说明                                           | 适用场景                               |
+| ----------- | ---------------------------------------------- | -------------------------------------- |
+| `skip`      | 跳过该 source，不做任何操作（默认）            | 保留 target 的现有数据，避免覆盖       |
+| `merge`     | 合并 source 到 target，删除 source，创建链接   | 以 target 为准，以 source 补充         |
+| `overwrite` | 删除 source，保留 target，直接创建链接         | 确认 source 数据不再需要，保留目标数据 |
+| `replace`   | 删除 target，移动 source 到 target，创建链接   | 确认 target 数据不再需要，可以完全替换 |
 
 **merge 模式详细说明：**
 
@@ -173,6 +174,9 @@ link-disk link vscode --dry-run
 
 # 显示详细过程
 link-disk link vscode --verbose
+
+# 强制重新链接（删除已有软链接）
+link-disk link vscode --force
 ```
 
 ---
@@ -228,15 +232,12 @@ link-disk list [选项]
 **示例输出：**
 
 ```
-应用: VSCode
-  ✓ AppData/Roaming/Code → vscode/Roaming (软链接)
-  ✓ .vscode → vscode/config (软链接)
+App: VSCode
+  <home>/AppData/Roaming/Code -> vscode/Roaming
+  <home>/.vscode -> vscode/config
 
-应用: Chrome
-  ✓ AppData/Local/Google/Chrome → chrome/Local (软链接)
-
-应用: WeChat DevTools
-  ✗ Navigator/Cache → wx-devtools/Cache (链接已损坏)
+App: Chrome
+  <home>/AppData/Local/Google/Chrome -> chrome/Local
 ```
 
 ---
@@ -248,12 +249,14 @@ link-disk status [应用名...]
 ```
 
 **状态说明：**
-| 状态 | 说明 |
-|------|------|
-| `✓ 正常` | 链接有效，文件存在 |
-| `✗ 损坏` | 链接存在但目标文件不存在 |
-| `? 孤立` | 文件存在但链接不存在 |
-| `- 未链接` | 尚未创建链接 |
+| 状态 | 图标 | 说明 |
+|------|------|------|
+| `linked` | ✓ | 链接有效，目标存在 |
+| `broken` | ✗ | 链接存在但目标不存在 |
+| `both_exist` | ? | 源和目标都存在（非链接） |
+| `source_only` | ? | 只有源存在 |
+| `target_only` | ? | 只有目标存在 |
+| `none` | ? | 都不存在 |
 
 **示例：**
 
@@ -319,7 +322,7 @@ link_type = "symlink"
 | Windows     | `C:\Users\<用户名>\.link-disk\config.toml` |
 | Linux/macOS | `/home/<用户名>/.link-disk/config.toml`    |
 
-指定自定义配置文件：
+指定自定义配置文件（`--config` 为全局选项，放在子命令前）：
 
 ```bash
 link-disk --config "E:/my-config.toml" link vscode

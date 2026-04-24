@@ -41,13 +41,20 @@ flowchart TD
     ON_EXISTS_STRATEGY -->|Merge| MERGE_DIRS[合并目录]
     ON_EXISTS_STRATEGY -->|Overwrite| REMOVE_SOURCE[删除 source]
     REMOVE_TARGET --> MOVE_SOURCE
-    MERGE_DIRS --> END
+    MERGE_DIRS --> REMOVE_SOURCE_DIR[删除 source 目录]
+    REMOVE_SOURCE_DIR --> CREATE_LINK
     REMOVE_SOURCE --> END([结束])
-    ENSURE_PARENT --> CREATE_SYMLINK
-    MOVE_SOURCE --> CREATE_SYMLINK[创建符号链接]
-    CREATE_SYMLINK --> END
-    SKIP --> END
-    ALREADY_LINKED --> END
+    ENSURE_PARENT --> CREATE_TARGET_DIR{target 不存在?}
+    CREATE_TARGET_DIR -->|是| CREATE_DIR[创建目标目录]
+    CREATE_TARGET_DIR -->|否| CREATE_LINK
+    CREATE_DIR --> CREATE_LINK
+    MOVE_SOURCE --> CREATE_LINK{链接类型?}
+    CREATE_LINK -->|Symlink| CREATE_SYMLINK[创建符号链接]
+    CREATE_LINK -->|Hardlink| CREATE_HARDLINK[创建硬链接]
+    CREATE_SYMLINK --> END_SUCCESS([结束])
+    CREATE_HARDLINK --> END_SUCCESS
+    SKIP --> END_SKIP([结束])
+    ALREADY_LINKED --> END_ALREADY([结束])
 ```
 
 **图 1.1: link 命令主流程**
@@ -57,17 +64,23 @@ flowchart TD
 1. **配置加载阶段**: 系统首先加载 TOML 配置文件，获取工作区路径和应用配置
 2. **应用解析阶段**: 根据用户输入确定要处理的应用列表（指定应用或所有应用）
 3. **路径展开阶段**: 将配置文件中的占位符（如 `<home>`、`<localappdata>`）替换为实际路径
-4. **链接请求构建**: 根据配置创建 `LinkRequest` 对象，包含源路径、目标路径、链接类型和冲突策略
+4. **链接请求构建**: 根据配置创建 `LinkRequest` 对象，包含源路径、目标路径、链接类型、冲突策略和 force 选项
 5. **符号链接检查**: 检查源位置是否已经是符号链接
-   - 如果是且 `force` 为 true：删除现有链接重新创建
+   - 如果是且 `force` 为 true：删除现有链接，继续后续处理
    - 如果是且 `force` 为 false：检查链接目标是否正确，正确则跳过，错误则报错
 6. **源文件检查**: 判断源文件/目录是否存在
+   - **存在**: 继续检查目标位置
+   - **不存在**: 确保目标目录存在，如果不存在则创建，然后直接创建链接（不移动文件）
 7. **目标位置检查**: 根据 `on_exists` 策略处理冲突
    - **Skip**: 跳过操作，保持现状
-   - **Replace**: 删除目标位置的文件，然后移动源文件
-   - **Merge**: 合并两个目录的内容
-   - **Overwrite**: 删除源文件，不执行移动
-8. **执行移动和链接**: 将源文件移动到目标位置，然后在源位置创建符号链接
+   - **Replace**: 删除目标位置的文件，然后移动源文件到目标
+   - **Merge**: 合并两个目录的内容（删除源目录），跳过 move，直接创建链接
+   - **Overwrite**: 删除源文件，跳过 move，直接创建链接
+8. **执行移动和链接**:
+   - 如果源存在（Replace 或无冲突）：将源文件移动到目标位置
+   - 如果源已被策略删除（Merge/Overwrite）：跳过移动
+   - 如果源不存在：仅创建目标目录结构
+   - 根据链接类型创建符号链接或硬链接
 
 ---
 
@@ -101,10 +114,10 @@ flowchart TD
 ### 流程说明
 
 1. **force 为 true**: 直接删除现有符号链接，继续后续处理（视为源位置为空）
-2. **force 为 false**: 
+2. **force 为 false**:
    - 尝试读取符号链接的目标路径
-   - 如果读取失败：报错退出
-   - 如果读取成功：规范化路径并比较
+   - 如果读取失败（`read_link` 返回 None）：报错退出
+   - 如果读取成功：规范化路径（统一正斜杠、小写）并比较
      - 路径相同：返回"已链接"，跳过操作
      - 路径不同：报错提示用户使用 `--force` 强制处理
 
@@ -148,16 +161,18 @@ flowchart TD
     CHECK_STRATEGY -->|Merge| MERGE_LOOP{遍历 source 目录}
     CHECK_STRATEGY -->|Overwrite| DELETE_SOURCE[删除 source 目录]
     DELETE_TARGET --> CONTINUE[继续移动 source]
-    DELETE_SOURCE --> CONTINUE2[结束 - 不移动]
+    DELETE_SOURCE --> CONTINUE2[跳过移动，直接创建链接]
     MERGE_LOOP -->|子目录| MERGE_LOOP
     MERGE_LOOP -->|文件不存在于 target| COPY_FILE[复制文件到 target]
     MERGE_LOOP -->|文件已存在| SKIP_FILE[跳过文件]
     MERGE_LOOP -->|遍历完成| DELETE_SOURCE_DIR[删除 source 目录]
     COPY_FILE --> MERGE_LOOP
     SKIP_FILE --> MERGE_LOOP
-    DELETE_SOURCE_DIR --> END([结束])
-    CONTINUE --> END
-    CONTINUE2 --> END
+    DELETE_SOURCE_DIR --> CREATE_LINK2[跳过移动，直接创建链接]
+    CONTINUE --> CREATE_LINK1[创建链接]
+    CONTINUE2 --> CREATE_LINK1
+    CREATE_LINK2 --> END([结束])
+    CREATE_LINK1 --> END
     RETURN_SKIP --> END
 ```
 
@@ -168,9 +183,9 @@ flowchart TD
 | 策略 | 行为 | 适用场景 |
 |------|------|---------|
 | **Skip** | 不执行任何操作，保持现状 | 不确定是否要覆盖，希望手动处理 |
-| **Replace** | 删除目标位置的整个目录，然后将源文件移动过去 | 确保使用最新配置，不需要保留旧配置 |
-| **Merge** | 遍历源目录，逐个复制文件到目标目录（不覆盖已存在的文件） | 希望合并新旧配置，保留两边的数据 |
-| **Overwrite** | 删除源目录，不执行移动操作 | 希望保留目标位置的配置，丢弃源配置 |
+| **Replace** | 删除目标位置的整个目录，然后将源文件移动过去，创建链接 | 确保使用最新配置，不需要保留旧配置 |
+| **Merge** | 遍历源目录，逐个复制文件到目标目录（不覆盖已存在的文件），删除源目录，直接创建链接 | 希望合并新旧配置，保留两边的数据 |
+| **Overwrite** | 删除源目录，跳过移动，直接创建链接 | 希望保留目标位置的配置，丢弃源配置 |
 
 ---
 
@@ -207,14 +222,17 @@ flowchart TD
 ### 流程说明
 
 1. **符号链接检查**: 检查源位置是否为符号链接
-   - 如果是：删除符号链接
+   - 如果是：删除符号链接，然后根据 `keep_files` 选项处理
+     - `keep_files` 为 false：将目标位置的文件移回源位置
+     - `keep_files` 为 true：保留目标位置的文件
    - 如果不是：检查源位置是否存在文件
      - 存在：报错（期望是符号链接但不是）
-     - 不存在：继续检查目标位置
-2. **keep_files 选项处理**:
-   - **true**: 保留目标位置的文件，仅删除符号链接
-   - **false**: 将目标位置的文件复制回源位置，然后删除目标位置的临时文件
-3. **目标位置检查**: 如果源位置不存在符号链接，检查目标位置是否有文件需要移回
+     - 不存在：检查目标位置是否有文件
+       - 有文件且 `keep_files` 为 false：将文件移回源位置
+       - 其他情况：无需操作
+2. **移回文件逻辑** (`move_back`):
+   - 如果目标是目录：递归复制到源位置，然后删除目标目录
+   - 如果目标是文件：直接重命名到源位置
 
 ---
 
@@ -253,9 +271,9 @@ flowchart TD
 2. **状态处理**:
    - **broken**: 链接存在但目标不存在
      - 删除断开的符号链接
-     - 重新创建新的符号链接
+     - 重新创建新的符号链接（使用 `force: true`）
    - **target_only**: 只有目标存在（源位置没有链接）
-     - `force` 为 true：强制创建符号链接
+     - `force` 为 true：强制创建符号链接（当前代码仅支持 symlink，不考虑 link_type）
      - `force` 为 false：提示用户使用 `--force` 选项
    - **其他状态**: 跳过，认为状态正常
 3. **完成**: 所有 source 处理完毕后结束
@@ -441,7 +459,7 @@ link_type = "symlink"  # 影响链接创建方式
 |------|-----------|------|
 | `--config` | 配置加载 | 指定配置文件路径 |
 | `--verbose` | 所有流程 | 输出详细日志 |
-| `--force` | link/unlink/repair | 强制执行，跳过确认 |
+| `--force` | link/unlink/repair | link: 强制删除已有软链接后重新链接; unlink: 确认执行; repair: 为孤立目标创建链接 |
 | `--dry-run` | link | 模拟执行，不实际操作 |
 | `--keep-files` | unlink | 保留目标位置的文件 |
-| `--all` | link/status | 处理所有配置的应用 |
+| `--all` | link/status/unlink/repair | 处理所有已配置的应用 |

@@ -49,7 +49,12 @@ fn run() -> Result<()> {
             println!("Config file: {:?}", Workspace::config_path()?);
         }
 
-        Commands::Link { apps, all, dry_run, force } => {
+        Commands::Link {
+            apps,
+            all,
+            dry_run,
+            force,
+        } => {
             let config = load_config(&cli.config)?;
 
             let workspace_path = &config.workspace.path;
@@ -68,9 +73,7 @@ fn run() -> Result<()> {
             }
 
             for app_id in apps_to_link {
-                let app_config = config
-                    .get_app(app_id)
-                    .context("App not found in config")?;
+                let app_config = config.get_app(app_id).context("App not found in config")?;
 
                 if cli.verbose {
                     println!("\nLinking app: {}", app_config.name);
@@ -95,9 +98,7 @@ fn run() -> Result<()> {
             let apps_to_unlink = resolve_apps(&config, apps, *all)?;
 
             for app_id in apps_to_unlink {
-                let app_config = config
-                    .get_app(app_id)
-                    .context("App not found in config")?;
+                let app_config = config.get_app(app_id).context("App not found in config")?;
 
                 if cli.verbose {
                     println!("\nUnlinking app: {}", app_config.name);
@@ -322,7 +323,18 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
 
                 FsUtils::remove_if_exists(&source_path, verbose)?;
 
-                link_ops::LinkOps::unlink(&source_path, &target_path, false, verbose)?;
+                let target_relative = format!("{}/{}", app_config.name, source.target);
+                let target_path = Workspace::resolve_target(workspace_path, &target_relative);
+
+                let request = LinkRequest {
+                    source: source_path.clone(),
+                    target: target_path.clone(),
+                    link_type: LinkType::from_str(&source.link_type),
+                    on_exists: OnExists::from_str(app_config.on_exists_strategy()),
+                    force: true,
+                };
+
+                link_ops::LinkOps::link(&request, verbose)?;
             }
             "target_only" => {
                 if force {

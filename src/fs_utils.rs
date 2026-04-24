@@ -47,7 +47,9 @@ impl FsUtils {
     }
 
     pub fn ensure_parent_exists(path: &Path) -> Result<()> {
-        if let Some(parent) = path.parent() && !parent.exists() {
+        if let Some(parent) = path.parent()
+            && !parent.exists()
+        {
             std::fs::create_dir_all(parent)
                 .with_context(|| format!("Failed to create parent directory: {:?}", parent))?;
         }
@@ -117,22 +119,34 @@ impl FsUtils {
         if target.is_dir() {
             #[cfg(windows)]
             std::os::windows::fs::symlink_dir(target, link).with_context(|| {
-                format!("Failed to create directory symlink at {:?} pointing to {:?}", link, target)
+                format!(
+                    "Failed to create directory symlink at {:?} pointing to {:?}",
+                    link, target
+                )
             })?;
 
             #[cfg(not(windows))]
             std::os::unix::fs::symlink(target, link).with_context(|| {
-                format!("Failed to create directory symlink at {:?} pointing to {:?}", link, target)
+                format!(
+                    "Failed to create directory symlink at {:?} pointing to {:?}",
+                    link, target
+                )
             })?;
         } else {
             #[cfg(windows)]
             std::os::windows::fs::symlink_file(target, link).with_context(|| {
-                format!("Failed to create file symlink at {:?} pointing to {:?}", link, target)
+                format!(
+                    "Failed to create file symlink at {:?} pointing to {:?}",
+                    link, target
+                )
             })?;
 
             #[cfg(not(windows))]
             std::os::unix::fs::symlink(target, link).with_context(|| {
-                format!("Failed to create file symlink at {:?} pointing to {:?}", link, target)
+                format!(
+                    "Failed to create file symlink at {:?} pointing to {:?}",
+                    link, target
+                )
             })?;
         }
         Ok(())
@@ -143,8 +157,12 @@ impl FsUtils {
     }
 
     pub fn hard_link(target: &Path, link: &Path) -> Result<()> {
-        std::fs::hard_link(target, link)
-            .with_context(|| format!("Failed to create hardlink at {:?} pointing to {:?}", link, target))?;
+        std::fs::hard_link(target, link).with_context(|| {
+            format!(
+                "Failed to create hardlink at {:?} pointing to {:?}",
+                link, target
+            )
+        })?;
         Ok(())
     }
 }

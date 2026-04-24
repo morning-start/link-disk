@@ -87,9 +87,6 @@ impl LinkOps {
         }
 
         if source.exists() {
-            if verbose {
-                println!("Source exists, moving to target...");
-            }
             if target.exists() {
                 match request.on_exists {
                     OnExists::Skip => {
@@ -102,11 +99,10 @@ impl LinkOps {
                         FsUtils::remove_if_exists(target, verbose)?;
                     }
                     OnExists::Merge => {
-                        return Self::merge_dirs(source, target, verbose);
+                        Self::merge_dirs(source, target, verbose)?;
                     }
                     OnExists::Overwrite => {
                         FsUtils::remove_if_exists(source, verbose)?;
-                        return Ok(());
                     }
                 }
             }
@@ -185,9 +181,8 @@ impl LinkOps {
             if src_path.is_dir() {
                 Self::merge_dirs(&src_path, &dst_path, verbose)?;
             } else if !dst_path.exists() {
-                std::fs::copy(&src_path, &dst_path).with_context(|| {
-                    format!("Failed to copy: {:?} to {:?}", src_path, dst_path)
-                })?;
+                std::fs::copy(&src_path, &dst_path)
+                    .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
             } else if verbose {
                 println!("Skipping existing file: {:?}", dst_path);
             }
@@ -219,7 +214,11 @@ impl LinkOps {
         if source.is_symlink() {
             if target.exists() { "linked" } else { "broken" }
         } else if source.exists() {
-            if target.exists() { "both_exist" } else { "source_only" }
+            if target.exists() {
+                "both_exist"
+            } else {
+                "source_only"
+            }
         } else if target.exists() {
             "target_only"
         } else {

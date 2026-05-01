@@ -5,6 +5,7 @@
 //! - 文件回移（将目标位置的内容移回源位置）
 
 use anyhow::{Context, Result};
+use std::collections::VecDeque;
 use std::path::Path;
 
 use crate::fs_utils::FileSystem;
@@ -15,8 +16,10 @@ pub struct DirOps;
 impl DirOps {
     /// 合并两个目录的内容（源目录合并到目标目录）
     ///
-    /// 将源目录中的所有文件和子目录递归合并到目标目录，
+    /// 将源目录中的所有文件和子目录迭代合并到目标目录，
     /// 合并完成后删除源目录。
+    ///
+    /// 使用 BFS 迭代实现，避免深目录导致的栈溢出。
     ///
     /// # 参数
     /// - `source`: 源目录路径
@@ -28,20 +31,30 @@ impl DirOps {
             anyhow::bail!("Merge requires both paths to be directories");
         }
 
-        for entry in std::fs::read_dir(source)
-            .with_context(|| format!("Failed to read directory: {:?}", source))?
-        {
-            let entry = entry?;
-            let src_path = entry.path();
-            let dst_path = target.join(entry.file_name());
+        let mut queue = VecDeque::new();
+        queue.push_back((source.to_path_buf(), target.to_path_buf()));
 
-            if src_path.is_dir() {
-                Self::merge_dirs(&src_path, &dst_path, fs, verbose)?;
-            } else if !dst_path.exists() {
-                std::fs::copy(&src_path, &dst_path)
-                    .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
-            } else if verbose {
-                println!("Skipping existing file: {:?}", dst_path);
+        while let Some((src_dir, dst_dir)) = queue.pop_front() {
+            if !dst_dir.exists() {
+                std::fs::create_dir_all(&dst_dir)
+                    .with_context(|| format!("Failed to create directory: {:?}", dst_dir))?;
+            }
+
+            for entry in std::fs::read_dir(&src_dir)
+                .with_context(|| format!("Failed to read directory: {:?}", src_dir))?
+            {
+                let entry = entry?;
+                let src_path = entry.path();
+                let dst_path = dst_dir.join(entry.file_name());
+
+                if src_path.is_dir() {
+                    queue.push_back((src_path, dst_path));
+                } else if !dst_path.exists() {
+                    std::fs::copy(&src_path, &dst_path)
+                        .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
+                } else if verbose {
+                    println!("Skipping existing file: {:?}", dst_path);
+                }
             }
         }
 

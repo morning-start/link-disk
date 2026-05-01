@@ -1,17 +1,31 @@
+//! 链接操作模块
+//!
+//! 提供链接的核心功能，包括：
+//! - 符号链接和硬链接的创建
+//! - 链接的删除（unlink）
+//! - 目标已存在时的处理策略
+//! - 链接状态检查
+//! - 目录合并操作
+
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
 use crate::fs_utils::FsUtils;
 
+/// 链接操作工具类
 pub struct LinkOps;
 
+/// 链接类型枚举
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum LinkType {
+    /// 符号链接（软链接）
     Symlink,
+    /// 硬链接
     Hardlink,
 }
 
 impl LinkType {
+    /// 从字符串解析链接类型，默认为 Symlink
     pub fn from_str(s: &str) -> Self {
         match s {
             "hardlink" | "Hardlink" | "HARDLINK" => LinkType::Hardlink,
@@ -20,15 +34,21 @@ impl LinkType {
     }
 }
 
+/// 目标已存在时的处理策略枚举
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OnExists {
+    /// 跳过，不执行任何操作
     Skip,
+    /// 合并目录内容
     Merge,
+    /// 覆盖源文件后重新创建链接
     Overwrite,
+    /// 删除目标后移动源到目标位置
     Replace,
 }
 
 impl OnExists {
+    /// 从字符串解析策略，默认为 Skip
     pub fn from_str(s: &str) -> Self {
         match s {
             "merge" | "Merge" | "MERGE" => OnExists::Merge,
@@ -39,15 +59,28 @@ impl OnExists {
     }
 }
 
+/// 链接请求结构体
 pub struct LinkRequest {
+    /// 源路径（原位置）
     pub source: PathBuf,
+    /// 目标路径（工作区中的位置）
     pub target: PathBuf,
+    /// 链接类型
     pub link_type: LinkType,
+    /// 目标已存在时的处理策略
     pub on_exists: OnExists,
+    /// 是否强制覆盖已存在的符号链接
     pub force: bool,
 }
 
 impl LinkOps {
+    /// 创建链接：将源路径的内容转移到目标路径，然后在源位置创建链接指向目标
+    ///
+    /// # 流程
+    /// 1. 如果源是符号链接且 force=true，先删除它
+    /// 2. 根据策略处理目标已存在的情况
+    /// 3. 移动源内容到目标
+    /// 4. 在源位置创建指向目标的链接
     pub fn link(request: &LinkRequest, verbose: bool) -> Result<()> {
         let source = &request.source;
         let target = &request.target;
@@ -87,6 +120,7 @@ impl LinkOps {
         }
 
         if source.exists() {
+            // 源存在时的处理逻辑
             if target.exists() {
                 match request.on_exists {
                     OnExists::Skip => {
@@ -96,12 +130,15 @@ impl LinkOps {
                         return Ok(());
                     }
                     OnExists::Replace => {
+                        // 删除目标，然后移动源到目标
                         FsUtils::remove_if_exists(target, verbose)?;
                     }
                     OnExists::Merge => {
+                        // 合并源目录到目标目录
                         Self::merge_dirs(source, target, verbose)?;
                     }
                     OnExists::Overwrite => {
+                        // 删除源，然后创建空目录结构
                         FsUtils::remove_if_exists(source, verbose)?;
                     }
                 }
@@ -110,6 +147,7 @@ impl LinkOps {
             FsUtils::ensure_parent_exists(target)?;
             FsUtils::move_dir_cross_filesystem(source, target)?;
         } else {
+            // 源不存在时，创建目标目录结构并建立链接
             if verbose {
                 println!("Source does not exist, creating target directory structure...");
             }
@@ -142,6 +180,7 @@ impl LinkOps {
         Ok(())
     }
 
+    /// 删除链接：移除源位置的链接，可选择将目标位置的文件移回源位置
     pub fn unlink(source: &Path, target: &Path, keep_files: bool, verbose: bool) -> Result<()> {
         if verbose {
             println!("Unlinking: {:?} -> {:?}", source, target);
@@ -166,6 +205,7 @@ impl LinkOps {
         Ok(())
     }
 
+    /// 合并两个目录的内容（源目录合并到目标目录）
     fn merge_dirs(source: &Path, target: &Path, verbose: bool) -> Result<()> {
         if !source.is_dir() || !target.is_dir() {
             anyhow::bail!("Merge requires both paths to be directories");
@@ -193,6 +233,7 @@ impl LinkOps {
         Ok(())
     }
 
+    /// 将目标位置的内容移回源位置
     fn move_back(source: &Path, target: &Path) -> Result<()> {
         if !source.exists() {
             anyhow::bail!("Target path does not exist: {:?}", source);
@@ -210,6 +251,15 @@ impl LinkOps {
         Ok(())
     }
 
+    /// 检查链接状态
+    ///
+    /// 返回值说明：
+    /// - "linked": 链接正常，目标和源都存在
+    /// - "broken": 链接损坏（源是符号链接但目标不存在）
+    /// - "both_exist": 源和目标都存在但不是链接
+    /// - "source_only": 只有源存在
+    /// - "target_only": 只有目标存在
+    /// - "none": 都不存在
     pub fn check_status(source: &Path, target: &Path) -> &'static str {
         if source.is_symlink() {
             if target.exists() { "linked" } else { "broken" }

@@ -1,10 +1,26 @@
+//! 工作区管理模块
+//!
+//! 负责工作区的初始化、配置文件管理、路径解析，包括：
+//! - 工作区目录的创建
+//! - 配置文件的生成和管理
+//! - 路径展开（支持 ~ 前缀）
+//! - 目标路径的解析
+
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+/// 工作区管理工具类
 pub struct Workspace;
 
 impl Workspace {
+    /// 初始化工作区：创建工作区目录和默认配置文件
+    ///
+    /// # 参数
+    /// - `path`: 工作区根目录路径
+    ///
+    /// # 返回值
+    /// 返回工作区路径
     pub fn init(path: &Path) -> Result<PathBuf> {
         if !path.exists() {
             std::fs::create_dir_all(path)
@@ -68,16 +84,19 @@ link_type = "symlink"
         Ok(std::path::PathBuf::from(path))
     }
 
+    /// 获取配置文件所在目录（~/.link-disk）
     pub fn config_dir() -> Result<PathBuf> {
         let home = dirs::home_dir().context("Failed to get home directory")?;
 
         Ok(home.join(".link-disk"))
     }
 
+    /// 获取配置文件的完整路径（~/.link-disk/config.toml）
     pub fn config_path() -> Result<PathBuf> {
         Ok(Self::config_dir()?.join("config.toml"))
     }
 
+    /// 展开路径中的 ~ 前缀为用户主目录
     pub fn expand_path(path: &str) -> PathBuf {
         if path.starts_with("~")
             && let Some(home) = dirs::home_dir()
@@ -91,6 +110,7 @@ link_type = "symlink"
         PathBuf::from(path)
     }
 
+    /// 解析目标路径：将相对路径与工作区路径拼接为绝对路径
     pub fn resolve_target(workspace: &Path, relative: &str) -> PathBuf {
         let normalized = relative.replace("/", "\\");
         workspace.join(&normalized)

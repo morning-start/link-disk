@@ -1,3 +1,11 @@
+//! 主程序入口模块
+//!
+//! 负责程序的整体流程控制，包括：
+//! - 命令行参数解析
+//! - 配置文件加载
+//! - 各子命令的执行调度
+//! - 错误处理和用户提示
+
 mod cli;
 mod config;
 mod error;
@@ -16,6 +24,7 @@ use path_resolver::PathResolver;
 use spinners::{Spinner, Spinners};
 use workspace::Workspace;
 
+/// 程序入口点，捕获并处理所有错误
 fn main() {
     if let Err(e) = run() {
         eprintln!("Error: {}", e);
@@ -23,6 +32,7 @@ fn main() {
     }
 }
 
+/// 主运行函数：解析命令行参数并执行对应操作
 fn run() -> Result<()> {
     let cli = Cli::parse();
 
@@ -164,6 +174,7 @@ fn run() -> Result<()> {
     Ok(())
 }
 
+/// 加载配置文件
 fn load_config(config_path: &Option<String>) -> Result<Config> {
     let path = match config_path {
         Some(p) => Workspace::expand_path(p),
@@ -180,6 +191,7 @@ fn load_config(config_path: &Option<String>) -> Result<Config> {
     Config::load(&path)
 }
 
+/// 解析需要处理的应用列表
 fn resolve_apps<'a>(config: &'a Config, apps: &'a [String], all: bool) -> Result<Vec<&'a String>> {
     if all || apps.is_empty() {
         Ok(config.enabled_apps().into_iter().map(|(n, _)| n).collect())
@@ -188,6 +200,7 @@ fn resolve_apps<'a>(config: &'a Config, apps: &'a [String], all: bool) -> Result
     }
 }
 
+/// 执行单个应用的链接创建
 fn link_app(
     config: &Config,
     app_id: &str,
@@ -250,6 +263,7 @@ fn link_app(
     Ok(())
 }
 
+/// 执行单个应用的链接删除
 fn unlink_app(
     config: &Config,
     app_id: &str,
@@ -278,6 +292,7 @@ fn unlink_app(
     Ok(())
 }
 
+/// 打印应用的链接配置信息
 fn print_app_links(app_config: &AppConfig) {
     println!("App: {}", app_config.name);
 
@@ -286,6 +301,7 @@ fn print_app_links(app_config: &AppConfig) {
     }
 }
 
+/// 检查应用的所有链接状态
 fn check_app_status(_config: &Config, app_config: &AppConfig) {
     println!("App: {}", app_config.name);
 
@@ -306,6 +322,7 @@ fn check_app_status(_config: &Config, app_config: &AppConfig) {
     }
 }
 
+/// 修复应用的所有损坏链接
 fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: bool) -> Result<()> {
     let workspace_path = &config.workspace.path;
 

@@ -17,7 +17,8 @@ mod workspace;
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
-use config::{AppConfig, Config};
+use config::{AppConfig, Config, Source};
+use std::path::{Path, PathBuf};
 use fs_utils::FsUtils;
 use link_ops::{LinkRequest, LinkType, OnExists};
 use path_resolver::PathResolver;
@@ -200,6 +201,29 @@ fn resolve_apps<'a>(config: &'a Config, apps: &'a [String], all: bool) -> Result
     }
 }
 
+/// 从 Source 配置构建 LinkRequest
+fn build_link_request(
+    app_config: &AppConfig,
+    source: &Source,
+    workspace_path: &Path,
+    force: bool,
+) -> (LinkRequest, PathBuf, PathBuf) {
+    let source_path = PathResolver::resolve_if_exists(&source.source)
+        .unwrap_or_else(|| PathResolver::expand(&source.source).into());
+    let target_relative = format!("{}/{}", app_config.name, source.target);
+    let target_path = Workspace::resolve_target(workspace_path, &target_relative);
+
+    let request = LinkRequest {
+        source: source_path.clone(),
+        target: target_path.clone(),
+        link_type: LinkType::from_str(&source.link_type),
+        on_exists: OnExists::from_str(app_config.on_exists_strategy()),
+        force,
+    };
+
+    (request, source_path, target_path)
+}
+
 /// 执行单个应用的链接创建
 fn link_app(
     config: &Config,
@@ -229,16 +253,7 @@ fn link_app(
             continue;
         }
 
-        let source_path = PathResolver::resolve_if_exists(&source.source)
-            .unwrap_or_else(|| PathResolver::expand(&source.source).into());
-
-        let request = LinkRequest {
-            source: source_path.clone(),
-            target: target_path.clone(),
-            link_type: LinkType::from_str(&source.link_type),
-            on_exists: OnExists::from_str(app_config.on_exists_strategy()),
-            force,
-        };
+        let (request, _, _) = build_link_request(app_config, source, workspace_path, force);
 
         let source_name = source
             .source
@@ -313,12 +328,12 @@ fn check_app_status(_config: &Config, app_config: &AppConfig) {
         );
 
         let status_icon = match status {
-            "linked" => "✓",
-            "broken" => "✗",
+            link_ops::LinkStatus::Linked => "✓",
+            link_ops::LinkStatus::Broken => "✗",
             _ => "?",
         };
 
-        println!("  {} {} -> {}", status_icon, source.source, status);
+        println!("  {} {} -> {}", status_icon, source.source, status.as_str());
     }
 }
 
@@ -333,27 +348,18 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
         let status = link_ops::LinkOps::check_status(&source_path, &target_path);
 
         match status {
-            "broken" => {
+            link_ops::LinkStatus::Broken => {
                 if verbose {
                     println!("  Repairing broken link: {}", source.source);
                 }
 
                 FsUtils::remove_if_exists(&source_path, verbose)?;
 
-                let target_relative = format!("{}/{}", app_config.name, source.target);
-                let target_path = Workspace::resolve_target(workspace_path, &target_relative);
-
-                let request = LinkRequest {
-                    source: source_path.clone(),
-                    target: target_path.clone(),
-                    link_type: LinkType::from_str(&source.link_type),
-                    on_exists: OnExists::from_str(app_config.on_exists_strategy()),
-                    force: true,
-                };
+                let (request, _, _) = build_link_request(app_config, source, workspace_path, true);
 
                 link_ops::LinkOps::link(&request, verbose)?;
             }
-            "target_only" => {
+            link_ops::LinkStatus::TargetOnly => {
                 if force {
                     if verbose {
                         println!("  Creating link for orphaned target: {}", source.source);
@@ -369,7 +375,7 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
             }
             _ => {
                 if verbose {
-                    println!("  Skipping {} (status: {})", source.source, status);
+                    println!("  Skipping {} (status: {})", source.source, status.as_str());
                 }
             }
         }

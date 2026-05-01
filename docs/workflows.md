@@ -22,8 +22,8 @@ flowchart TD
     PARSE_APPS -->|--all| GET_ALL_APPS[获取所有已配置应用]
     GET_APP --> EXPAND_PATHS
     GET_ALL_APPS --> EXPAND_PATHS[展开路径占位符]
-    EXPAND_PATHS --> BUILD_REQUEST[构建 LinkRequest]
-    BUILD_REQUEST --> LINK_OPS[调用 LinkOps::link]
+    EXPAND_PATHS --> BUILD_REQUEST[构建链接请求]
+    BUILD_REQUEST --> LINK_OPS[执行链接操作]
     LINK_OPS --> CHECK_SYMLINK{source 是符号链接?}
     CHECK_SYMLINK -->|是| CHECK_FORCE{force=true?}
     CHECK_SYMLINK -->|否| CHECK_SOURCE_EXISTS
@@ -64,7 +64,7 @@ flowchart TD
 1. **配置加载阶段**: 系统首先加载 TOML 配置文件，获取工作区路径和应用配置
 2. **应用解析阶段**: 根据用户输入确定要处理的应用列表（指定应用或所有应用）
 3. **路径展开阶段**: 将配置文件中的占位符（如 `<home>`、`<localappdata>`）替换为实际路径
-4. **链接请求构建**: 根据配置创建 `LinkRequest` 对象，包含源路径、目标路径、链接类型、冲突策略和 force 选项
+4. **链接请求构建**: 根据配置创建链接请求对象，包含源路径、目标路径、链接类型、冲突策略和 force 选项
 5. **符号链接检查**: 检查源位置是否已经是符号链接
    - 如果是且 `force` 为 true：删除现有链接，继续后续处理
    - 如果是且 `force` 为 false：检查链接目标是否正确，正确则跳过，错误则报错
@@ -95,12 +95,12 @@ flowchart TD
 ```mermaid
 flowchart TD
     START([开始: source.is_symlink]) --> CHECK_FORCE{force 选项}
-    CHECK_FORCE -->|true| REMOVE_LINK[FsUtils::remove_if_exists<br/>删除符号链接]
+    CHECK_FORCE -->|true| REMOVE_LINK[删除现有符号链接]
     CHECK_FORCE -->|false| CHECK_TARGET{读取链接目标}
     REMOVE_LINK --> CONTINUE[继续处理<br/>视为无 source]
     CHECK_TARGET -->|读取成功| NORMALIZE_PATHS[规范化路径比较]
     CHECK_TARGET -->|读取失败| ERROR_READ_LINK[报错: 无法读取链接]
-    NORMALIZE_PATHS --> COMPARE{normalized_linked<br/>==<br/>normalized_target}
+    NORMALIZE_PATHS --> COMPARE{规范化后的路径<br/>是否相同}
     COMPARE -->|是 - 相同| RETURN_LINKED[返回: Already Linked<br/>跳过操作]
     COMPARE -->|否 - 不同| ERROR_DIFFERENT[报错: 指向不同目标<br/>使用 --force 强制处理]
     RETURN_LINKED --> END([结束])
@@ -116,7 +116,7 @@ flowchart TD
 1. **force 为 true**: 直接删除现有符号链接，继续后续处理（视为源位置为空）
 2. **force 为 false**:
    - 尝试读取符号链接的目标路径
-   - 如果读取失败（`read_link` 返回 None）：报错退出
+   - 如果读取失败：报错退出
    - 如果读取成功：规范化路径（统一正斜杠、小写）并比较
      - 路径相同：返回"已链接"，跳过操作
      - 路径不同：报错提示用户使用 `--force` 强制处理
@@ -200,17 +200,17 @@ flowchart TD
 ```mermaid
 flowchart TD
     START([开始 unlink 命令]) --> CHECK_SYMLINK{source 是符号链接?}
-    CHECK_SYMLINK -->|是| REMOVE_LINK[FsUtils::remove_if_exists<br/>删除符号链接]
+    CHECK_SYMLINK -->|是| REMOVE_LINK[删除符号链接]
     CHECK_SYMLINK -->|否| CHECK_EXISTS{source 存在?}
     REMOVE_LINK --> CHECK_KEEP_FILES{keep_files?}
     CHECK_KEEP_FILES -->|true| END_SKIP[结束 - 保留文件]
-    CHECK_KEEP_FILES -->|false| MOVE_BACK[move_back<br/>移动文件回原位置]
+    CHECK_KEEP_FILES -->|false| MOVE_BACK[将文件移回原位置]
     CHECK_EXISTS -->|不存在| CHECK_TARGET{target 存在?}
     CHECK_EXISTS -->|存在| ERROR_NOT_SYMLINK[报错: 不是符号链接]
     CHECK_TARGET -->|存在且 keep_files=false| MOVE_BACK
     CHECK_TARGET -->|不存在| END_OK[结束 - 无需操作]
-    MOVE_BACK --> COPY_DIR[FsUtils::copy_dir_recursive]
-    COPY_DIR --> REMOVE_SOURCE[FsUtils::remove_if_exists<br/>删除临时文件]
+    MOVE_BACK --> COPY_DIR[递归复制目录]
+    COPY_DIR --> REMOVE_SOURCE[删除临时文件]
     REMOVE_SOURCE --> END_OK
     ERROR_NOT_SYMLINK --> END_ERROR([结束 - 报错])
     END_OK --> END_SUCCESS([结束 - 成功])
@@ -230,7 +230,7 @@ flowchart TD
      - 不存在：检查目标位置是否有文件
        - 有文件且 `keep_files` 为 false：将文件移回源位置
        - 其他情况：无需操作
-2. **移回文件逻辑** (`move_back`):
+2. **移回文件逻辑**:
    - 如果目标是目录：递归复制到源位置，然后删除目标目录
    - 如果目标是文件：直接重命名到源位置
 
@@ -247,15 +247,15 @@ flowchart TD
 ```mermaid
 flowchart TD
     START([开始 repair 命令]) --> FOR_EACH_SOURCE{遍历每个 source}
-    FOR_EACH_SOURCE --> CHECK_STATUS[调用 LinkOps::check_status]
+    FOR_EACH_SOURCE --> CHECK_STATUS[检查链接状态]
     CHECK_STATUS --> GET_STATUS{status 结果}
     GET_STATUS -->|broken| REPAIR_BROKEN[修复断开的链接]
     GET_STATUS -->|target_only| CHECK_FORCE{force?}
     GET_STATUS -->|其他| SKIP_STATUS[跳过 - 状态正常]
-    REPAIR_BROKEN --> REMOVE_BROKEN_LINK[FsUtils::remove_if_exists<br/>删除断开链接]
+    REPAIR_BROKEN --> REMOVE_BROKEN_LINK[删除断开的链接]
     REMOVE_BROKEN_LINK --> REPAIR_LINK[重新创建链接]
     REPAIR_LINK --> FOR_EACH_SOURCE
-    CHECK_FORCE -->|true| CREATE_LINK_FORCE[FsUtils::create_symlink<br/>强制创建链接]
+    CHECK_FORCE -->|true| CREATE_LINK_FORCE[强制创建链接]
     CHECK_FORCE -->|false| PRINT_FORCE_HINT[提示: 使用 --force 创建链接]
     CREATE_LINK_FORCE --> FOR_EACH_SOURCE
     PRINT_FORCE_HINT --> FOR_EACH_SOURCE
@@ -267,13 +267,13 @@ flowchart TD
 
 ### 流程说明
 
-1. **遍历检查**: 对配置的每个 source 位置调用 `LinkOps::check_status` 检查状态
+1. **遍历检查**: 对配置的每个 source 位置检查状态
 2. **状态处理**:
    - **broken**: 链接存在但目标不存在
      - 删除断开的符号链接
-     - 重新创建新的符号链接（使用 `force: true`）
+     - 重新创建新的符号链接（使用 force 模式）
    - **target_only**: 只有目标存在（源位置没有链接）
-     - `force` 为 true：强制创建符号链接（当前代码仅支持 symlink，不考虑 link_type）
+     - `force` 为 true：强制创建符号链接
      - `force` 为 false：提示用户使用 `--force` 选项
    - **其他状态**: 跳过，认为状态正常
 3. **完成**: 所有 source 处理完毕后结束
@@ -371,7 +371,7 @@ stateDiagram-v2
 1. **操作前检查**: 验证路径、权限、依赖
 2. **操作中保护**: 先备份再操作，确保可回滚
 3. **操作后验证**: 确认操作结果符合预期
-4. **错误传播**: 使用 `anyhow::Result` 统一错误类型，通过 `?` 操作符传播
+4. **错误传播**: 统一错误类型，通过错误链传播上下文信息
 
 ---
 

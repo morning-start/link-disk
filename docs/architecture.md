@@ -67,7 +67,21 @@ main.rs
     ├── link_ops.rs     (依赖)
     │       └── fs_utils.rs
     ├── path_resolver.rs (依赖)
-    └── fs_utils.rs     (无下层依赖)
+    └── error.rs         (依赖)
+```
+
+### 2.3 文件结构
+
+```
+src/
+├── main.rs              # 程序入口，命令调度
+├── cli.rs               # CLI 命令定义 (clap)
+├── config.rs            # 配置文件解析 (TOML)
+├── workspace.rs         # 工作区管理
+├── link_ops.rs          # 链接操作逻辑
+├── path_resolver.rs     # 路径占位符解析
+├── fs_utils.rs          # 文件系统工具
+└── error.rs             # 错误类型定义
 ```
 
 ---
@@ -82,26 +96,18 @@ main.rs
 - 程序入口点
 - 命令行参数解析 (clap)
 - 业务逻辑协调
+- 错误处理和用户提示
 
-**关键类型:**
+**支持的命令:**
 
-```rust
-// cli.rs
-struct Cli {
-    command: Commands,
-    config: Option<String>,     // 默认 ~/.link-disk/config.toml
-    verbose: bool,
-}
-
-enum Commands {
-    Init { path: Option<String>, force: bool },
-    Link { apps: Vec<String>, all: bool, dry_run: bool, force: bool },
-    Unlink { apps: Vec<String>, all: bool, force: bool, keep_files: bool },
-    List { app: Option<String> },
-    Status { apps: Vec<String> },
-    Repair { apps: Vec<String>, force: bool },
-}
-```
+| 命令 | 说明 | 关键选项 |
+|------|------|---------|
+| `init` | 初始化工作区和配置文件 | `--path`, `--force` |
+| `link` | 创建链接（转移文件夹并创建链接） | `--all`, `--dry-run`, `--force`, `-v` |
+| `unlink` | 移除链接并恢复原文件位置 | `--all`, `--force`, `--keep-files` |
+| `list` | 列出所有已配置的应用和链接 | `--app` |
+| `status` | 检查链接状态是否正常 | [应用名...] |
+| `repair` | 修复损坏的链接 | [应用名...], `--force` |
 
 ### 3.2 Config 层 (config.rs)
 
@@ -115,7 +121,6 @@ enum Commands {
 **关键类型:**
 
 ```rust
-// 配置结构
 pub struct Config {
     pub workspace: Workspace,
     pub apps: HashMap<String, AppConfig>,
@@ -127,16 +132,16 @@ pub struct Workspace {
 
 pub struct AppConfig {
     pub name: String,
-    pub enabled: bool,          // 默认 true
-    pub on_exists: Option<String>, // 可选，默认 "skip"
+    pub enabled: bool,
+    pub on_exists: Option<String>,
     pub sources: Vec<Source>,
 }
 
 pub struct Source {
     pub source: String,
     pub target: String,
-    pub link_type: String,      // 默认 "symlink"
-    pub _source_type: String,   // 默认 "dir"，源类型标识
+    pub link_type: String,
+    pub _source_type: String,
 }
 ```
 
@@ -148,17 +153,17 @@ pub struct Source {
 - 工作区目录初始化
 - 配置文件路径管理
 - 目标路径解析
-- 用户目录路径展开
+- 用户目录路径展开 (~ 前缀)
 
 **关键函数:**
 
-| 函数 | 签名 | 说明 |
-|------|------|------|
-| `init` | `pub fn init(path: &Path) -> Result<PathBuf>` | 初始化工作区目录 |
-| `config_dir` | `pub fn config_dir() -> Result<PathBuf>` | 获取配置目录路径 |
-| `config_path` | `pub fn config_path() -> Result<PathBuf>` | 获取配置文件路径 |
-| `expand_path` | `pub fn expand_path(path: &str) -> PathBuf` | 展开 ~ 为用户目录 |
-| `resolve_target` | `pub fn resolve_target(workspace: &Path, relative: &str) -> PathBuf` | 解析目标路径 |
+| 函数 | 说明 |
+|------|------|
+| `init(path)` | 初始化工作区目录和配置文件 |
+| `config_dir()` | 获取配置目录路径 (`~/.link-disk`) |
+| `config_path()` | 获取配置文件路径 (`~/.link-disk/config.toml`) |
+| `expand_path(path)` | 展开 ~ 为用户主目录 |
+| `resolve_target(workspace, relative)` | 解析目标路径 |
 
 ### 3.4 Path Resolver 层 (path_resolver.rs)
 
@@ -170,17 +175,17 @@ pub struct Source {
 
 **支持的占位符:**
 
-| 占位符 | 说明 |
-|--------|------|
-| `<home>` | 用户主目录 |
-| `<appdata>` | AppData/Roaming |
-| `<localappdata>` | AppData/Local |
-| `<documents>` | 文档文件夹 |
-| `<desktop>` | 桌面 |
-| `<downloads>` | 下载文件夹 |
-| `<temp>` | 临时文件夹 |
-| `<programfiles>` | Program Files |
-| `<programfilesx86>` | Program Files (x86) |
+| 占位符 | 说明 | Windows 示例 |
+|--------|------|-------------|
+| `<home>` | 用户主目录 | `C:\Users\<用户名>` |
+| `<appdata>` | AppData/Roaming | `...\AppData\Roaming` |
+| `<localappdata>` | AppData/Local | `...\AppData\Local` |
+| `<documents>` | 文档文件夹 | `...\Documents` |
+| `<desktop>` | 桌面 | `...\Desktop` |
+| `<downloads>` | 下载文件夹 | `...\Downloads` |
+| `<temp>` | 临时文件夹 | `...\AppData\Local\Temp` |
+| `<programfiles>` | Program Files | `C:\Program Files` |
+| `<programfilesx86>` | Program Files (x86) | `C:\Program Files (x86)` |
 
 **关键函数:**
 
@@ -188,8 +193,8 @@ pub struct Source {
 pub struct PathResolver;
 
 impl PathResolver {
-    pub fn expand(path: &str) -> String          // 展开所有占位符
-    pub fn resolve_if_exists(path: &str) -> Option<PathBuf>  // 展开并检查是否存在
+    pub fn expand(path: &str) -> String                    // 展开所有占位符
+    pub fn resolve_if_exists(path: &str) -> Option<PathBuf> // 展开并检查是否存在
 }
 ```
 
@@ -200,25 +205,27 @@ impl PathResolver {
 **职责:**
 - 文件系统原子操作封装
 - 跨平台文件系统操作抽象
+- 符号链接安全删除（区分目录/文件符号链接）
 
 **关键函数:**
 
-| 函数 | 签名 | 说明 |
-|------|------|------|
-| `copy_dir_recursive` | `(src: &Path, dst: &Path) -> Result<()>` | 递归复制目录（含文件） |
-| `move_dir_cross_filesystem` | `(src: &Path, dst: &Path) -> Result<()>` | 跨分区移动（复制后删除源） |
-| `normalize_path` | `(path: &Path) -> String` | 规范化路径（统一正斜杠，小写） |
-| `ensure_parent_exists` | `(path: &Path) -> Result<()>` | 确保父目录存在 |
-| `remove_if_exists` | `(path: &Path, verbose: bool) -> Result<()>` | 安全删除（自动判断文件/目录/符号链接） |
-| `rename` | `(src: &Path, dst: &Path) -> Result<()>` | 重命名/移动文件 |
-| `create_symlink` | `(target: &Path, link: &Path) -> Result<()>` | 创建符号链接（自动区分文件/目录） |
-| `read_link` | `(path: &Path) -> Option<PathBuf>` | 读取链接目标 |
-| `hard_link` | `(target: &Path, link: &Path) -> Result<()>` | 创建硬链接 |
+| 函数 | 说明 |
+|------|------|
+| `copy_dir_recursive(src, dst)` | 递归复制目录（含文件） |
+| `move_dir_cross_filesystem(src, dst)` | 跨分区移动（复制后删除源） |
+| `normalize_path(path)` | 规范化路径（统一正斜杠，小写） |
+| `ensure_parent_exists(path)` | 确保父目录存在 |
+| `remove_if_exists(path, verbose)` | 安全删除（自动判断文件/目录/符号链接） |
+| `rename(src, dst)` | 重命名/移动文件 |
+| `create_symlink(target, link)` | 创建符号链接（自动区分文件/目录） |
+| `read_link(path)` | 读取链接目标 |
+| `hard_link(target, link)` | 创建硬链接 |
 
 **设计原则:**
 - 每个函数都是原子操作
 - 无业务逻辑，仅文件系统操作
 - 统一的错误处理 (anyhow::Result)
+- Windows 符号链接特殊处理（先尝试 remove_dir，失败则 remove_file）
 
 ### 3.6 Link Ops 层 (link_ops.rs)
 
@@ -232,10 +239,15 @@ impl PathResolver {
 **关键类型:**
 
 ```rust
+pub enum LinkType {
+    Symlink,   // 符号链接（软链接）
+    Hardlink,  // 硬链接
+}
+
 pub enum OnExists {
     Skip,      // 跳过 - 目标已存在时不操作
-    Merge,     // 合并 - 合并源到目标后删除源，跳过 move，直接创建链接
-    Overwrite, // 覆盖 - 删除源，跳过 move，直接创建链接
+    Merge,     // 合并 - 合并源到目标后删除源，继续创建链接
+    Overwrite, // 覆盖 - 删除源后继续创建链接
     Replace,   // 替换 - 删除目标，移动源到目标，创建链接
 }
 
@@ -247,12 +259,10 @@ pub struct LinkRequest {
     pub force: bool,
 }
 
-pub struct LinkOps;
-
 impl LinkOps {
     pub fn link(request: &LinkRequest, verbose: bool) -> Result<()>
-    pub fn unlink(source: &Path, target: &Path, keep_files: bool, verbose: bool) -> Result<()>
-    pub fn check_status(source: &Path, target: &Path) -> &'static str
+    pub fn unlink(source, target, keep_files, verbose) -> Result<()>
+    pub fn check_status(source, target) -> &'static str
 }
 ```
 
@@ -260,9 +270,9 @@ impl LinkOps {
 
 | 状态 | 说明 |
 |------|------|
-| `"linked"` | 链接存在且目标存在 |
-| `"broken"` | 链接存在但目标不存在 |
-| `"both_exist"` | 源和目标都存在 (非链接) |
+| `"linked"` | 链接正常，目标和源都存在 |
+| `"broken"` | 链接损坏（目标不存在） |
+| `"both_exist"` | 源和目标都存在 |
 | `"source_only"` | 只有源存在 |
 | `"target_only"` | 只有目标存在 |
 | `"none"` | 都不存在 |
@@ -289,7 +299,7 @@ impl LinkOps {
 ### 5.1 错误类型
 
 ```rust
-// error.rs (已定义，当前使用 anyhow 替代)
+// error.rs - 自定义错误类型（预留）
 pub enum LinkDiskError {
     Io(std::io::Error),
     Config(String),
@@ -298,35 +308,32 @@ pub enum LinkDiskError {
 }
 
 pub type Result<T> = std::result::Result<T, LinkDiskError>;
-
-// 包含 validate_path() 工具函数
-// 实现了 Display, Debug, From<io::Error>
 ```
 
-### 5.2 错误传播
+### 5.2 当前实现
+
+使用 `anyhow::Result` 统一错误处理：
+- 通过 `.with_context()` 为底层 IO 错误添加可读的操作描述
+- 通过 `.bail!()` 或 `anyhow::anyhow!()` 创建上下文丰富的错误
+- 在 `main()` 中统一捕获并输出错误信息
+
+### 5.3 错误传播链
 
 ```
-FsUtils (anyhow::Result)
-    │
-    ├── .with_context() 为 IO 操作添加上下文描述
-    └── ? 操作符向上传播
-            │
-            ▼
-    LinkOps (anyhow::Result)
-            │
-            ├── .with_context() 为链接操作添加上下文
-            └── ? 操作符向上传播
-            │
-            ▼
-    main.rs (anyhow::Result)
-            │
-            └── ? 操作符传播
-            │
-            ▼
-    main() -> eprintln!("Error: {}", e); std::process::exit(1)
+fs_utils (anyhow::Result)
+    │ .with_context() 添加 IO 操作上下文
+    └── ? 向上传播
+           │
+link_ops (anyhow::Result)
+    │ .with_context() 添加链接操作上下文
+    └── ? 向上传播
+           │
+main.rs (anyhow::Result)
+    │ .bail!() / .with_context()
+    └── ? 向上传播
+           │
+main() → eprintln!("Error: {}", e); std::process::exit(1)
 ```
-
-**当前实现:** 使用 `anyhow::Result` 统一错误处理，通过 `.with_context()` 为底层 IO 错误添加可读的操作描述，简化错误传播。
 
 ---
 
@@ -345,29 +352,28 @@ FsUtils (anyhow::Result)
 
 ## 7. 跨平台考虑
 
-### 7.1 Windows
+### 7.1 Windows 特殊处理
 
-- 符号链接需要管理员权限或开发者模式
-- 使用 `symlink_dir` 创建目录链接
-- 使用 `symlink_file` 创建文件链接
+- **符号链接创建**: 使用 `symlink_dir` / `symlink_file`
+- **符号链接删除**: 先尝试 `remove_dir`（目录符号链接），失败则尝试 `remove_file`（文件符号链接）
+- **权限**: 需要管理员权限或开发者模式
+- **路径格式**: 内部使用反斜杠 `\`
 
-### 7.2 Unix
+### 7.2 Unix 系统
 
-- 符号链接通过 `symlink` 创建
+- 符号链接通过 `symlink` 统一创建
+- 符号链接通过 `remove_file` 统一删除
 - 硬链接支持同文件系统
 
 ### 7.3 路径规范化
 
-路径比较时统一使用正斜杠 `/` 并转小写，确保跨平台一致性：
+路径比较时统一使用正斜杠 `/` 并转小写：
 
 ```rust
 pub fn normalize_path(path: &Path) -> String {
     path.to_string_lossy().replace("\\", "/").to_lowercase()
 }
 ```
-
-**注意:** `PathResolver::replace_placeholders` 内部将 `/` 替换为 `\\`（Windows 风格），
-而 `Workspace::resolve_target` 也将 `/` 替换为 `\\` 后拼接。规范化仅在路径比较时使用。
 
 ---
 
@@ -380,7 +386,7 @@ pub fn normalize_path(path: &Path) -> String {
 | **单一职责** | 每个模块职责清晰: Config 解析配置, Workspace 管路径, FsUtils 原子操作 |
 | **开放封闭** | LinkType, OnExists 枚举易于扩展新变体 |
 | **里氏替换** | 公共函数接受 `&Path` 而非 `&PathBuf`，更通用 |
-| **接口隔离** | FsUtils 提供 9 个小而专注的原子方法 |
+| **接口隔离** | FsUtils 提供多个小而专注的原子方法 |
 | **依赖倒置** | LinkOps 编排 FsUtils，main 协调 LinkOps |
 
 ### 8.2 分层原则
@@ -400,16 +406,16 @@ pub fn normalize_path(path: &Path) -> String {
 | 模块 | 测试内容 |
 |------|---------|
 | `path_resolver.rs` | 占位符展开测试 |
-| `config.rs` | 配置文件解析测试 |
-| `fs_utils.rs` | 文件系统操作测试 |
 
-### 9.2 集成测试
+### 9.2 测试运行
 
-| 测试 | 说明 |
-|------|------|
-| `link --all` | 完整链接流程 |
-| `unlink --all` | 完整解除流程 |
-| `repair` | 损坏链接修复 |
+```bash
+# 运行所有测试
+cargo test
+
+# 运行特定测试
+cargo test test_home_placeholder
+```
 
 ---
 
@@ -417,8 +423,8 @@ pub fn normalize_path(path: &Path) -> String {
 
 ### 10.1 添加新命令
 
-1. 在 `cli.rs` 定义子命令
-2. 在 `main.rs` 添加处理逻辑
+1. 在 `cli.rs` 定义子命令枚举变体
+2. 在 `main.rs` 的 `run()` 函数中添加处理逻辑
 3. 如需新操作，在 `link_ops.rs` 或 `fs_utils.rs` 实现
 
 ### 10.2 添加新占位符
@@ -426,24 +432,24 @@ pub fn normalize_path(path: &Path) -> String {
 在 `path_resolver.rs` 的 `replace_placeholders` 函数中添加:
 
 ```rust
-if let Some(path) = dirs::new_dir_function() {
-    result = result.replace("<new_placeholder>", &path.to_string_lossy());
+if let Some(path) = dirs::new_dir_function() && result.contains("<new>") {
+    result = result.replace("<new>", &path.to_string_lossy());
 }
 ```
 
 ### 10.3 添加新链接策略
 
-在 `link_ops.rs` 的 `OnExists` 枚举中添加新变体，更新 `from_str` 匹配，并在 `link` 方法的 `match request.on_exists` 分支中实现相应逻辑。
+在 `link_ops.rs` 的 `OnExists` 枚举中添加新变体：
+1. 更新 `from_str` 匹配
+2. 在 `link` 方法的 `match request.on_exists` 分支中实现相应逻辑
 
-### 10.4 添加新依赖
+### 10.4 当前依赖
 
-在 `Cargo.toml` 的 `[dependencies]` 中添加，当前主要依赖：
-
-| 依赖 | 版本 | 用途 |
-|------|------|------|
-| `clap` | 4.5 (derive) | CLI 参数解析 |
-| `toml` | 0.8 | 配置文件解析 |
-| `serde` | 1.0 (derive) | 序列化/反序列化 |
-| `anyhow` | 1.0 | 错误处理 |
-| `dirs` | 5.0 | 系统目录路径 |
-| `spinners` | 4.1 | 终端进度指示器 |
+| 依赖 | 用途 |
+|------|------|
+| `clap` | CLI 参数解析 |
+| `toml` | 配置文件解析 |
+| `serde` | 序列化/反序列化 |
+| `anyhow` | 错误处理 |
+| `dirs` | 系统目录路径获取 |
+| `spinners` | 终端进度指示器 |

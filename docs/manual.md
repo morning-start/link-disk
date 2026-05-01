@@ -8,10 +8,16 @@
 git clone https://github.com/yourname/link-disk.git
 cd link-disk
 cargo build --release
-# 可执行文件会在 target/release/link-disk.exe
+# 可执行文件会在 target/release/link-disk.exe (Windows) 或 target/release/link-disk (Unix)
 ```
 
-### 1.2 添加到 PATH
+### 1.2 环境要求
+
+- Rust 1.75+ (2024 Edition)
+- Windows: 需要管理员权限或开发者模式创建符号链接
+- Linux/macOS: 无特殊权限要求
+
+### 1.3 添加到 PATH
 
 将可执行文件所在目录添加到系统 PATH 环境变量。
 
@@ -29,6 +35,13 @@ link-disk init
 
 - 配置文件：`~/.link-disk/config.toml`
 - 工作区文件夹：`D:/link-disk-workspace/`（或其他配置的路径）
+
+**选项：**
+
+| 选项 | 说明 |
+|------|------|
+| `--path <路径>` | 指定工作区路径 |
+| `--force` | 如果已存在，强制重新初始化 |
 
 ### 2.2 编辑配置文件
 
@@ -52,10 +65,10 @@ link-disk link vscode chrome
 
 ```bash
 # 查看所有链接状态
-link-disk list
-
-# 查看详细信息
 link-disk status
+
+# 查看详细信息（带调试输出）
+link-disk status -v
 ```
 
 ---
@@ -64,11 +77,14 @@ link-disk status
 
 ### 3.1 init - 初始化工作区
 
+初始化工作区目录和默认配置文件。
+
 ```bash
 link-disk init [选项]
 ```
 
 **选项：**
+
 | 选项 | 说明 |
 |------|------|
 | `--path <路径>` | 指定工作区路径 |
@@ -91,21 +107,26 @@ link-disk init --force
 
 ### 3.2 link - 创建链接
 
+将应用的配置和数据文件夹转移到工作区，并在原位置创建符号链接。
+
 ```bash
 link-disk link [应用名...] [选项]
 ```
 
 **参数：**
 
-- 不指定应用名：链接所有已配置的应用
-- 指定应用名：只链接指定的应用
+- 不指定应用名 + 不使用 `--all`：提示无应用可处理
+- 使用 `--all`：处理所有已启用的应用
+- 指定应用名：只处理指定的应用
 
 **选项：**
+
 | 选项 | 说明 |
 |------|------|
-| `--dry-run` | 模拟运行，不实际执行操作 |
-| `--verbose` | 显示详细信息 |
-| `--force` | 强制处理（删除已存在的软链接后重新链接） |
+| `--all`, `-a` | 处理所有已配置的应用 |
+| `--dry-run`, `-d` | 模拟运行，不实际执行操作 |
+| `--force`, `-f` | 强制处理（删除已存在的软链接后重新链接） |
+| `--verbose`, `-v` | 显示详细过程信息 |
 
 **link 逻辑说明：**
 
@@ -114,48 +135,20 @@ link-disk link [应用名...] [选项]
 | source 存在，target 不存在   | 移动 source → target，创建链接                                |
 | source 存在，target 存在     | 根据 on_exists 策略处理冲突，然后移动（如需要）并创建链接     |
 | source 不存在，target 不存在 | 创建 target 目录，创建链接                                    |
-| source 不存在，target 存在   | 直接创建链接                                                  |
+| source 是损坏的符号链接      | 如果 force=true 则删除并重建，否则报错                        |
 | source 已是正确链接          | 跳过，显示 "Already linked"                                   |
-| source 已是错误链接          | 报错                                                          |
+| source 已是错误链接          | 报错或使用 --force                                            |
 
 **冲突处理方案（on_exists）：**
 
 当 target 已存在文件或文件夹时的处理策略：
 
-| 选项        | 说明                                           | 适用场景                               |
-| ----------- | ---------------------------------------------- | -------------------------------------- |
-| `skip`      | 跳过该 source，不做任何操作（默认）            | 保留 target 的现有数据，避免覆盖       |
-| `merge`     | 合并 source 到 target，删除 source，创建链接   | 以 target 为准，以 source 补充         |
-| `overwrite` | 删除 source，保留 target，直接创建链接         | 确认 source 数据不再需要，保留目标数据 |
-| `replace`   | 删除 target，移动 source 到 target，创建链接   | 确认 target 数据不再需要，可以完全替换 |
-
-**merge 模式详细说明：**
-
-此模式用于 source 和 target 都存在数据时的处理：
-
-| 情况                   | 处理方式                             |
-| ---------------------- | ------------------------------------ |
-| source 有，target 没有 | 将 source 的文件/文件夹移动到 target |
-| source 有，target 也有 | 保留 target 的现有文件，不覆盖       |
-| source 没有，target 有 | 跳过                                 |
-
-处理顺序：
-
-1. 递归扫描 source 和 target 的所有子目录
-2. 对比两侧的文件差异
-3. 将 source 独有的内容合并到 target
-4. 两边都有的内容以 target 为准保留
-
-**示例：**
-
-```bash
-# 配置使用 merge 策略
-[apps.example]
-name = "Example App"
-on_exists = "merge"
-
-# 当 VSCode 的 extensions 文件夹已存在时，merge 会保留现有扩展并补充新的
-```
+| 策略       | 说明                                           | 适用场景                               |
+| ---------- | ---------------------------------------------- | -------------------------------------- |
+| `skip`     | 跳过该 source，不做任何操作（默认）            | 保留 target 的现有数据，避免覆盖       |
+| `merge`    | 合并源到目标后删除源目录，继续创建链接         | 以 target 为准，以 source 补充         |
+| `overwrite`| 删除源后继续创建链接                          | 确认 source 数据不再需要，保留目标数据 |
+| `replace`  | 删除目标，移动源到目标位置，创建链接           | 确认 target 数据不再需要，可以完全替换 |
 
 **示例：**
 
@@ -173,10 +166,10 @@ link-disk link vscode chrome
 link-disk link vscode --dry-run
 
 # 显示详细过程
-link-disk link vscode --verbose
+link-disk link vscode -v
 
 # 强制重新链接（删除已有软链接）
-link-disk link vscode --force
+link-disk link vscode -f
 ```
 
 ---
@@ -190,15 +183,17 @@ link-disk unlink [应用名...] [选项]
 ```
 
 **选项：**
+
 | 选项 | 说明 |
 |------|------|
-| `--force` | 强制移除，不确认 |
+| `--all`, `-a` | 处理所有已配置的应用 |
+| `--force`, `-f` | 强制移除，跳过确认 |
 | `-k, --keep-files` | 只删除链接，不移动文件 |
 
 **示例：**
 
 ```bash
-# 移除所有链接
+# 移除所有链接（需要确认）
 link-disk unlink --all
 
 # 移除单个应用
@@ -213,18 +208,21 @@ link-disk unlink vscode --force --keep-files
 
 **注意：** `unlink` 会：
 
-1. 删除之前创建的链接
+1. 删除之前创建的符号链接
 2. 将文件从目标位置移回源位置（除非使用 `--keep-files`）
 
 ---
 
 ### 3.4 list - 列出链接
 
+列出所有已配置的应用和它们的链接配置。
+
 ```bash
 link-disk list [选项]
 ```
 
 **选项：**
+
 | 选项 | 说明 |
 |------|------|
 | `--app <应用名>` | 只显示指定应用 |
@@ -244,11 +242,14 @@ App: Chrome
 
 ### 3.5 status - 检查链接状态
 
+检查链接是否正常工作。
+
 ```bash
 link-disk status [应用名...]
 ```
 
 **状态说明：**
+
 | 状态 | 图标 | 说明 |
 |------|------|------|
 | `linked` | ✓ | 链接有效，目标存在 |
@@ -272,14 +273,17 @@ link-disk status vscode chrome
 
 ### 3.6 repair - 修复链接
 
+修复损坏的链接或为孤立的目标创建新链接。
+
 ```bash
 link-disk repair [应用名...] [选项]
 ```
 
 **选项：**
+
 | 选项 | 说明 |
 |------|------|
-| `--force` | 强制修复（删除损坏的链接重新创建） |
+| `--force`, `-f` | 强制修复（为孤立目标创建链接） |
 
 **示例：**
 
@@ -289,15 +293,39 @@ link-disk repair
 
 # 修复指定应用
 link-disk repair vscode
+
+# 强制修复（包括为孤立目标创建链接）
+link-disk repair --force
 ```
 
 ---
 
-## 4. 配置文件
+## 4. 全局选项
+
+以下选项可用于所有命令：
+
+| 选项 | 说明 |
+|------|------|
+| `--verbose`, `-v` | 详细输出模式 |
+| `--config <PATH>` | 指定配置文件路径（默认 `~/.link-disk/config.toml`） |
+
+**示例：**
+
+```bash
+# 使用自定义配置文件
+link-disk --config "E:/my-config.toml" link vscode
+
+# 详细模式
+link-disk -v status
+```
+
+---
+
+## 5. 配置文件
 
 详细说明请参考 [配置文件说明](config.md)。
 
-### 4.1 快速配置
+### 5.1 快速配置
 
 ```toml
 [workspace]
@@ -313,7 +341,7 @@ target = "vscode/Roaming"
 link_type = "symlink"
 ```
 
-### 4.2 配置位置
+### 5.2 配置位置
 
 默认配置文件位置：
 
@@ -322,23 +350,17 @@ link_type = "symlink"
 | Windows     | `C:\Users\<用户名>\.link-disk\config.toml` |
 | Linux/macOS | `/home/<用户名>/.link-disk/config.toml`    |
 
-指定自定义配置文件（`--config` 为全局选项，放在子命令前）：
-
-```bash
-link-disk --config "E:/my-config.toml" link vscode
-```
-
 ---
 
-## 5. 常见问题
+## 6. 常见问题
 
-### 5.1 硬链接 vs 软链接，该选哪个？
+### 6.1 硬链接 vs 软链接，该选哪个？
 
 **软链接（symlink）：**
 
 - ✅ 支持跨分区
-- ✅ 目标删除后链接"断开"
-- ⚠️ 需要系统权限
+- ✅ 目标删除后链接"断开"（可用 repair 修复）
+- ⚠️ 需要系统权限（Windows）
 - 推荐日常使用
 
 **硬链接（hardlink）：**
@@ -352,7 +374,7 @@ link-disk --config "E:/my-config.toml" link vscode
 
 ---
 
-### 5.2 链接损坏怎么办？
+### 6.2 链接损坏怎么办？
 
 1. 使用 `status` 命令检查损坏情况：
 
@@ -373,7 +395,7 @@ link-disk --config "E:/my-config.toml" link vscode
 
 ---
 
-### 5.3 如何转移新的应用？
+### 6.3 如何转移新的应用？
 
 1. 编辑配置文件，添加新应用：
 
@@ -394,7 +416,7 @@ link-disk --config "E:/my-config.toml" link vscode
 
 ---
 
-### 5.4 卸载/移除链接后软件还能用吗？
+### 6.4 卸载/移除链接后软件还能用吗？
 
 可以。`unlink` 命令会：
 
@@ -405,7 +427,7 @@ link-disk --config "E:/my-config.toml" link vscode
 
 ---
 
-### 5.5 链接操作需要管理员权限吗？
+### 6.5 链接操作需要管理员权限吗？
 
 在 Windows 上：
 
@@ -419,9 +441,21 @@ link-disk --config "E:/my-config.toml" link vscode
 
 ---
 
-## 6. 故障排除
+### 6.6 符号链接删除失败怎么办？
 
-### 6.1 错误：权限被拒绝
+如果遇到 "Failed to remove symlink" 错误：
+
+1. **检查是否是目录符号链接**: Windows 上目录符号链接需要使用 `remove_dir` 而非 `remove_file`
+2. **检查权限**: 可能需要管理员权限
+3. **检查链接状态**: 使用 `link-disk status -v` 查看详细信息
+
+当前版本已自动处理此问题，会先尝试 remove_dir 再尝试 remove_file。
+
+---
+
+## 7. 故障排除
+
+### 7.1 错误：权限被拒绝
 
 **问题：** 无法创建符号链接
 
@@ -430,7 +464,7 @@ link-disk --config "E:/my-config.toml" link vscode
 - 以管理员身份运行
 - 或启用 Windows 开发者模式
 
-### 6.2 错误：目标路径不存在
+### 7.2 错误：目标路径不存在
 
 **问题：** 配置的 target 路径不存在
 
@@ -439,7 +473,7 @@ link-disk --config "E:/my-config.toml" link vscode
 - 检查 workspace.path 配置是否正确
 - 确保目标磁盘有足够空间
 
-### 6.3 错误：源路径不存在
+### 7.3 错误：源路径不存在
 
 **问题：** 指定的源文件夹不存在
 
@@ -448,7 +482,7 @@ link-disk --config "E:/my-config.toml" link vscode
 - 检查配置中的 source 路径是否正确
 - 确认应用已安装并运行过
 
-### 6.4 链接显示正常但软件异常
+### 7.4 链接显示正常但软件异常
 
 **问题：** `status` 显示正常但软件无法启动
 
@@ -457,9 +491,19 @@ link-disk --config "E:/my-config.toml" link vscode
 - 检查目标文件夹权限
 - 某些软件对文件位置有严格要求，尝试 `unlink` 恢复
 
+### 7.5 占位符没有展开
+
+**问题：** 配置中的 `<home>` 等占位符没有被替换
+
+**解决方案：**
+
+- 检查占位符拼写是否正确
+- 使用 `link-disk link -v` 查看展开后的实际路径
+- 确保 dirs crate 正常工作（系统环境变量正确）
+
 ---
 
-## 7. 命令行帮助
+## 8. 命令行帮助
 
 查看完整帮助：
 

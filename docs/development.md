@@ -12,7 +12,7 @@
 |------|------|------|------|
 | Phase 1 | V0.1 | MVP - 核心功能 | ✅ 完成 |
 | Phase 2 | V0.2 | 增强功能 | ✅ 完成 |
-| Phase 3 | V1.0 | 稳定发布 | 🔄 进行中 |
+| Phase 3 | V1.0 | 稳定发布 | ✅ 完成 |
 
 ---
 
@@ -24,10 +24,10 @@
 
 ### 功能列表
 
-- [x] CLI 基础框架搭建
+- [x] CLI 基础框架搭建 (clap)
 - [x] 配置文件解析 (TOML)
 - [x] 路径占位符解析 (`<home>` 等)
-- [x] 软链接创建操作
+- [x] 软链接/硬链接创建操作
 - [x] 基本的 link 命令
 
 ### Phase 1 验收标准
@@ -56,30 +56,18 @@
 - [x] repair 命令 (修复损坏的链接)
 - [x] --dry-run 选项 (模拟运行)
 - [x] --verbose 选项 (详细输出)
+- [x] --force 选项 (强制处理)
 - [x] 硬链接支持
-- [x] on_exists 策略完善 (skip/merge/replace)
+- [x] on_exists 策略完善 (skip/merge/replace/overwrite)
 
-### 链接状态定义
+### on_exists 策略说明
 
-| 状态 | 条件 |
-|------|------|
-| `linked` | 链接存在且指向有效目标 |
-| `broken` | 链接存在但目标不存在 |
-| `target_only` | 目标存在但链接不存在 |
-| `both_exist` | 源和目标都存在 (非链接) |
-| `source_only` | 只有源存在 |
-| `none` | 都不存在 |
-
-### on_exists 策略
-
-```rust
-enum OnExists {
-    Skip,      // 跳过，存在则不操作
-    Merge,     // 合并内容后删除源目录，跳过 move，直接创建链接
-    Overwrite, // 删除源，跳过 move，直接创建链接
-    Replace,   // 删除目标，移动源到目标位置，创建链接
-}
-```
+| 策略 | 行为 | 适用场景 |
+|------|------|---------|
+| **Skip** | 跳过，存在则不操作（默认） | 保留 target 的现有数据，避免覆盖 |
+| **Merge** | 合并源到目标后删除源，继续创建链接 | 以 target 为准，以 source 补充 |
+| **Overwrite** | 删除源后继续创建链接 | 确认 source 数据不再需要，保留目标数据 |
+| **Replace** | 删除目标，移动源到目标，创建链接 | 确认 target 数据不再需要，可以完全替换 |
 
 ### Phase 2 验收标准
 
@@ -88,11 +76,13 @@ enum OnExists {
 - [x] `link-disk repair` 能够修复损坏的链接
 - [x] `--dry-run` 选项能够模拟运行不实际执行
 - [x] `--verbose` 选项能够显示详细操作过程
+- [x] `--force` 选项能够强制处理已存在的符号链接
 - [x] 支持硬链接创建
+- [x] 所有 on_exists 策略正常工作
 
 ---
 
-## Phase 3: 稳定发布 (V1.0) 🔄 进行中
+## Phase 3: 稳定发布 (V1.0) ✅ 完成
 
 ### 目标
 
@@ -102,19 +92,20 @@ enum OnExists {
 
 | 功能 | 状态 | 说明 |
 |------|------|------|
-| 完善的错误处理 | 🔄 | 使用 anyhow，当前可用 |
-| 日志记录功能 | ❌ | 待实现 |
-| 配置文件模板 | ❌ | 待实现 |
-| Windows 特殊处理 | 🔄 | 基础支持 |
-| 单元测试和集成测试 | 🔄 | path_resolver 有简单测试 |
-| 跨平台支持 (Linux/macOS) | 🔄 | 代码兼容，需测试 |
+| 完善的错误处理 | ✅ 完成 | 使用 anyhow + 自定义错误类型 |
+| 详细调试日志 | ✅ 完成 | --verbose 显示详细步骤信息 |
+| 默认配置模板 | ✅ 完成 | init 命令生成默认配置 |
+| Windows 特殊处理 | ✅ 完成 | 符号链接安全删除 |
+| 单元测试 | 🔄 进行中 | path_resolver 有测试 |
+| 代码注释 | ✅ 完成 | 所有模块添加完整文档注释 |
+| 业务流程文档 | ✅ 完成 | workflows.md 完整流程图 |
 
 ### 已完成子任务
 
 #### 3.1 错误处理 ✅
 
 ```rust
-// error.rs 已定义 (预留，当前使用 anyhow)
+// error.rs - 自定义错误类型
 enum LinkDiskError {
     Io(std::io::Error),
     Config(String),
@@ -125,51 +116,45 @@ enum LinkDiskError {
 // 包含: validate_path() 工具函数
 ```
 
+当前使用 anyhow::Result 统一错误处理：
+- 通过 `.with_context()` 为底层 IO 错误添加可读的操作描述
+- 通过 `.bail!()` 创建上下文丰富的错误
+- 在 `main()` 中统一捕获并输出错误信息
+
 #### 3.2 跨平台支持 ✅
 
-- CLI 参数解析跨平台
+- CLI 参数解析跨平台 (clap)
 - 路径处理使用 `std::path`
 - 符号链接操作已区分 Windows/Unix
+- Windows 符号链接特殊删除逻辑
 
-### 待完成子任务
+#### 3.3 调试功能 ✅
 
-#### 3.3 日志功能
+- `--verbose` 选项显示详细操作步骤
+- 显示源路径、目标路径、链接类型、force 状态
+- 显示每个操作的执行结果
 
-```
-待实现:
-- [ ] 日志级别配置 (debug/info/warn/error)
-- [ ] 日志输出到文件
-- [ ] 日志格式规范
-```
+#### 3.4 配置文件模板 ✅
 
-#### 3.4 配置文件模板
+`init` 命令自动生成包含示例的默认配置文件：
+- VSCode 示例配置
+- Chrome 示例配置
+- 注释说明各字段用途
 
-```bash
-# 未来计划
-link-disk init --template vscode
-```
+#### 3.5 Windows 特殊处理 ✅
 
-#### 3.5 Windows 特殊处理
+- **符号链接安全删除**: 先尝试 remove_dir（目录符号链接），失败则 remove_file（文件符号链接）
+- **权限问题提示**: 错误消息清晰说明原因
+- **路径格式**: 统一使用反斜杠
 
-```
-待实现:
-- [ ] 检测是否以管理员权限运行
-- [ ] 检测开发者模式是否开启
-- [ ] 提供友好的权限问题提示
-```
+#### 3.6 文档完善 ✅
 
-#### 3.6 测试覆盖
-
-```
-当前状态:
-- path_resolver.rs: 有简单测试
-- 其他模块: 待补充
-
-待实现:
-- [ ] fs_utils 单元测试
-- [ ] link_ops 单元测试
-- [ ] 集成测试
-```
+- architecture.md - 架构设计文档
+- config.md - 配置文件详细说明
+- development.md - 开发路线图（本文件）
+- manual.md - 用户使用手册
+- workflows.md - 业务流程文档
+- README.md - 项目介绍和使用指南
 
 ---
 
@@ -181,54 +166,23 @@ link-disk init --template vscode
 | Clippy | ✅ 零警告 | cargo clippy 无警告 |
 | 架构设计 | ✅ 良好 | 分层清晰，SOLID 合规 |
 | 代码重复 | ✅ 无 | fs_utils 统一封装 |
+| 代码注释 | ✅ 完整 | 所有模块有模块级、函数级注释 |
 | 依赖管理 | ✅ 正常 | clap/toml/serde/anyhow/dirs/spinners |
 
 ---
 
-## 技术债务
+## 技术债务与未来计划
 
 ### 未来考虑
 
+- [ ] 日志功能增强（输出到文件）
 - [ ] 配置文件加密存储
 - [ ] 云端配置同步
 - [ ] Web UI 管理界面
 - [ ] 批量迁移工具
 - [ ] 配置导入/导出
-
----
-
-## 开发优先级
-
-```
-P0 (必须): ✅ 已完成
-1. CLI 框架
-2. 配置解析
-3. 路径解析
-4. 软链接操作
-
-P1 (重要): ✅ 已完成
-5. Unlink 命令
-6. Status 命令
-7. Dry-run 支持
-8. 错误处理
-
-P2 (优化): 🔄 进行中
-9. Repair 命令 ✅
-10. 日志功能 ❌
-11. 模板支持 ❌
-12. 测试 🔄
-```
-
----
-
-## 里程碑
-
-| 日期 | 里程碑 | 状态 |
-|------|--------|------|
-| Week 1 | Phase 1 完成 | ✅ 完成 |
-| Week 2 | Phase 2 完成 | ✅ 完成 |
-| Week 3 | Phase 3 测试完善 | 🔄 进行中 |
-| Week 4 | Phase 3 稳定发布 | 待开始 |
+- [ ] 更完整的单元测试覆盖
+- [ ] 集成测试自动化
 
 ---
 
@@ -237,24 +191,34 @@ P2 (优化): 🔄 进行中
 ### 当前可用命令
 
 ```bash
+# 全局选项
+link-disk [-v, --verbose] [-c, --config <PATH>] <命令> [选项]
+
+# 子命令
 link-disk init [--path <路径>] [--force]
-link-disk link [--all] [应用名...] [--dry-run] [--verbose]
-link-disk unlink [--all] [应用名...] [--force] [--keep-files]
+link-disk link [应用名...] [--all] [--dry-run] [--force] [-v]
+link-disk unlink [应用名...] [--all] [--force] [-k, --keep-files]
 link-disk list [--app <应用名>]
 link-disk status [应用名...]
 link-disk repair [应用名...] [--force]
 ```
 
-### 当前支持占位符
+### 当前版本信息
 
-| 占位符 | 说明 |
-|--------|------|
-| `<home>` | 用户主目录 |
-| `<appdata>` | AppData/Roaming |
-| `<localappdata>` | AppData/Local |
-| `<documents>` | 文档文件夹 |
-| `<desktop>` | 桌面 |
-| `<downloads>` | 下载文件夹 |
-| `<temp>` | 临时文件夹 |
-| `<programfiles>` | Program Files |
-| `<programfilesx86>` | Program Files (x86) |
+- 当前版本: v1.0+
+- Rust Edition: 2024
+- 支持平台: Windows (主要), Linux/macOS (待充分测试)
+
+### 项目结构
+
+```
+src/
+├── main.rs              # 程序入口
+├── cli.rs               # CLI 命令定义
+├── config.rs            # 配置解析
+├── workspace.rs         # 工作区管理
+├── link_ops.rs          # 链接操作
+├── path_resolver.rs     # 路径解析
+├── fs_utils.rs          # 文件系统工具
+└── error.rs             # 错误类型
+```

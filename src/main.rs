@@ -17,7 +17,7 @@ mod link_status;
 mod path_resolver;
 mod workspace;
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
 use config::Config;
@@ -112,5 +112,7 @@ fn load_config(config_path: &Option<String>) -> Result<Config> {
         );
     }
 
-    Config::load(&path)
+    let config = Config::load(&path)?;
+    config.validate().context("Invalid configuration")?;
+    Ok(config)
 }

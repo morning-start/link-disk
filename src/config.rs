@@ -84,6 +84,41 @@ impl Config {
         Ok(config)
     }
 
+    /// 校验配置有效性
+    pub fn validate(&self) -> Result<()> {
+        if self.workspace.path.to_string_lossy().is_empty() {
+            anyhow::bail!("Workspace path cannot be empty");
+        }
+
+        for (app_id, app_config) in &self.apps {
+            if app_config.name.trim().is_empty() {
+                anyhow::bail!("App '{}' has empty name", app_id);
+            }
+
+            match app_config.on_exists_strategy() {
+                "skip" | "replace" | "merge" | "overwrite" => {}
+                other => anyhow::bail!("App '{}' has invalid on_exists strategy: '{}'", app_id, other),
+            }
+
+            for source in &app_config.sources {
+                match source.link_type.as_str() {
+                    "symlink" | "hardlink" => {}
+                    other => anyhow::bail!("App '{}' has invalid link_type: '{}'", app_id, other),
+                }
+
+                if source.source.trim().is_empty() {
+                    anyhow::bail!("App '{}' has empty source path", app_id);
+                }
+
+                if source.target.trim().is_empty() {
+                    anyhow::bail!("App '{}' has empty target path", app_id);
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// 获取指定应用ID的配置
     pub fn get_app(&self, name: &str) -> Option<&AppConfig> {
         self.apps.get(name)

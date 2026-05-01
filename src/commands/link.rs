@@ -1,11 +1,12 @@
 //! 链接命令处理
 
 use anyhow::{Context, Result};
-use std::path::Path;
 
+use crate::common::app_resolver::resolve_apps;
+use crate::common::request_builder::build_link_request;
 use crate::config::{AppConfig, Config};
 use crate::fs_utils::{FsUtils, FileSystem};
-use crate::link_ops::{LinkOps, LinkRequest};
+use crate::link_ops::LinkOps;
 use crate::path_resolver::PathResolver;
 use crate::workspace::Workspace;
 use spinners::{Spinner, Spinners};
@@ -28,7 +29,7 @@ pub fn handle_link(
         fs.ensure_parent_exists(workspace_path)?;
     }
 
-    let apps_to_link = resolve_apps(config, apps, all)?;
+    let apps_to_link = resolve_apps(config, apps, all);
 
     if apps_to_link.is_empty() {
         println!("No apps to link. Configure apps in config.toml or use --all");
@@ -46,38 +47,6 @@ pub fn handle_link(
     }
 
     Ok(())
-}
-
-/// 解析需要处理的应用列表
-fn resolve_apps<'a>(config: &'a Config, apps: &'a [String], all: bool) -> Result<Vec<&'a String>> {
-    if all || apps.is_empty() {
-        Ok(config.enabled_apps().into_iter().map(|(n, _)| n).collect())
-    } else {
-        Ok(apps.iter().collect())
-    }
-}
-
-/// 从 Source 配置构建 LinkRequest
-fn build_link_request(
-    app_config: &AppConfig,
-    source: &crate::config::Source,
-    workspace_path: &Path,
-    force: bool,
-) -> (LinkRequest, std::path::PathBuf, std::path::PathBuf) {
-    let source_path = PathResolver::resolve_if_exists(&source.source)
-        .unwrap_or_else(|| PathResolver::expand(&source.source).into());
-    let target_relative = format!("{}/{}", app_config.name, source.target);
-    let target_path = Workspace::resolve_target(workspace_path, &target_relative);
-
-    let request = LinkRequest {
-        source: source_path.clone(),
-        target: target_path.clone(),
-        link_type: crate::link_ops::LinkType::from_str(&source.link_type),
-        on_exists: crate::link_ops::OnExists::from_str(app_config.on_exists_strategy()),
-        force,
-    };
-
-    (request, source_path, target_path)
 }
 
 /// 执行单个应用的链接创建

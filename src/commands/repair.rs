@@ -1,56 +1,26 @@
 //! 修复命令处理
 
 use anyhow::Result;
-use std::path::Path;
 
+use crate::common::app_resolver::resolve_apps;
+use crate::common::request_builder::build_link_request;
 use crate::config::{AppConfig, Config};
 use crate::fs_utils::{FsUtils, FileSystem};
-use crate::link_ops::{LinkOps, LinkRequest, LinkStatus};
+use crate::link_ops::{LinkOps, LinkStatus};
 use crate::path_resolver::PathResolver;
 use crate::workspace::Workspace;
 
 /// 处理 repair 命令：修复损坏的链接
 pub fn handle_repair(config: &Config, apps: &[String], force: bool, verbose: bool) -> Result<()> {
-    let apps_to_repair: Vec<String> = if apps.is_empty() {
-        config
-            .enabled_apps()
-            .into_iter()
-            .map(|(n, _)| n.clone())
-            .collect()
-    } else {
-        apps.to_vec()
-    };
+    let apps_to_repair = resolve_apps(config, apps, false);
 
-    for app_id in &apps_to_repair {
+    for app_id in apps_to_repair {
         if let Some(app_config) = config.get_app(app_id) {
             repair_app(config, app_config, force, verbose)?;
         }
     }
 
     Ok(())
-}
-
-/// 从 Source 配置构建 LinkRequest
-fn build_link_request(
-    app_config: &AppConfig,
-    source: &crate::config::Source,
-    workspace_path: &Path,
-    force: bool,
-) -> (LinkRequest, std::path::PathBuf, std::path::PathBuf) {
-    let source_path = PathResolver::resolve_if_exists(&source.source)
-        .unwrap_or_else(|| PathResolver::expand(&source.source).into());
-    let target_relative = format!("{}/{}", app_config.name, source.target);
-    let target_path = Workspace::resolve_target(workspace_path, &target_relative);
-
-    let request = LinkRequest {
-        source: source_path.clone(),
-        target: target_path.clone(),
-        link_type: crate::link_ops::LinkType::from_str(&source.link_type),
-        on_exists: crate::link_ops::OnExists::from_str(app_config.on_exists_strategy()),
-        force,
-    };
-
-    (request, source_path, target_path)
 }
 
 /// 修复应用的所有损坏链接

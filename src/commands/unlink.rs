@@ -2,10 +2,10 @@
 
 use anyhow::{Context, Result};
 
-use crate::config::{AppConfig, Config};
+use crate::common::app_resolver::resolve_apps;
+use crate::common::request_builder::resolve_paths;
+use crate::config::Config;
 use crate::link_ops::LinkOps;
-use crate::path_resolver::PathResolver;
-use crate::workspace::Workspace;
 
 /// 处理 unlink 命令：删除链接并可选择移回文件
 pub fn handle_unlink(
@@ -15,11 +15,7 @@ pub fn handle_unlink(
     keep_files: bool,
     verbose: bool,
 ) -> Result<()> {
-    let apps_to_unlink: Vec<&String> = if all || apps.is_empty() {
-        config.enabled_apps().into_iter().map(|(n, _)| n).collect()
-    } else {
-        apps.iter().collect()
-    };
+    let apps_to_unlink = resolve_apps(config, apps, all);
 
     for app_id in apps_to_unlink {
         let app_config = config.get_app(app_id).context("App not found in config")?;
@@ -38,19 +34,15 @@ pub fn handle_unlink(
 fn unlink_app(
     config: &Config,
     app_id: &str,
-    app_config: &AppConfig,
+    app_config: &crate::config::AppConfig,
     keep_files: bool,
     verbose: bool,
 ) -> Result<()> {
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
-        let source_path = PathResolver::resolve_if_exists(&source.source)
-            .unwrap_or_else(|| PathResolver::expand(&source.source).into());
-        let source_display = PathResolver::expand(&source.source);
-
-        let target_relative = format!("{}/{}", app_config.name, source.target);
-        let target_path = Workspace::resolve_target(workspace_path, &target_relative);
+        let (source_path, target_path) = resolve_paths(app_config, source, workspace_path);
+        let source_display = crate::path_resolver::PathResolver::expand(&source.source);
 
         if verbose {
             println!("  Source: {:?}", source_path);

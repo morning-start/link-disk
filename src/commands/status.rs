@@ -24,10 +24,8 @@ fn check_app_status(app_config: &AppConfig) {
     for source in &app_config.sources {
         let source_path: std::path::PathBuf = PathResolver::expand(&source.source).into();
         let source_display = PathResolver::expand(&source.source);
-        let status = LinkOps::check_status(
-            &source_path,
-            &std::path::PathBuf::from(&source.target),
-        );
+        let target_path = std::path::PathBuf::from(&source.target);
+        let status = LinkOps::check_status(&source_path, &target_path);
 
         let status_icon = match status {
             LinkStatus::Linked => "✓",

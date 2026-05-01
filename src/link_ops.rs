@@ -40,6 +40,20 @@ use crate::fs_utils::{FileSystem, FsUtils};
 // 重新导出 LinkStatus 和 LinkStatusChecker，保持向后兼容
 pub use crate::link_status::{LinkStatus, LinkStatusChecker};
 
+/// 策略名称常量模块
+///
+/// 定义所有支持的策略名称常量，拼写错误可在编译时捕获。
+pub mod strategies {
+    /// 跳过策略
+    pub const SKIP: &str = "skip";
+    /// 替换策略
+    pub const REPLACE: &str = "replace";
+    /// 合并策略
+    pub const MERGE: &str = "merge";
+    /// 覆盖策略
+    pub const OVERWRITE: &str = "overwrite";
+}
+
 /// 策略工厂类型：返回 Box<dyn OnExistsStrategy>
 ///
 /// 使用函数指针（fn）而非 trait object（dyn Fn），
@@ -49,13 +63,13 @@ type StrategyFactory = fn() -> Box<dyn OnExistsStrategy>;
 /// OnExists 策略注册表
 ///
 /// 静态不可变映射，在首次访问时初始化。
-/// 键为策略名称（如 "skip"），值为策略工厂函数。
+/// 键为策略名称，值为策略工厂函数。
 static STRATEGY_REGISTRY: LazyLock<HashMap<&'static str, StrategyFactory>> = LazyLock::new(|| {
     let mut reg: HashMap<&'static str, StrategyFactory> = HashMap::new();
-    reg.insert("skip", skip_strategy_factory);
-    reg.insert("replace", replace_strategy_factory);
-    reg.insert("merge", merge_strategy_factory);
-    reg.insert("overwrite", overwrite_strategy_factory);
+    reg.insert(strategies::SKIP, skip_strategy_factory);
+    reg.insert(strategies::REPLACE, replace_strategy_factory);
+    reg.insert(strategies::MERGE, merge_strategy_factory);
+    reg.insert(strategies::OVERWRITE, overwrite_strategy_factory);
     reg
 });
 
@@ -125,10 +139,10 @@ impl OnExists {
     /// 符合开放封闭原则：添加新策略只需在注册表中注册。
     pub fn strategy(&self) -> Box<dyn OnExistsStrategy> {
         let key = match self {
-            Self::Skip => "skip",
-            Self::Replace => "replace",
-            Self::Merge => "merge",
-            Self::Overwrite => "overwrite",
+            Self::Skip => strategies::SKIP,
+            Self::Replace => strategies::REPLACE,
+            Self::Merge => strategies::MERGE,
+            Self::Overwrite => strategies::OVERWRITE,
         };
         STRATEGY_REGISTRY
             .get(key)

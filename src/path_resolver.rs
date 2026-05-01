@@ -22,6 +22,30 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::LazyLock;
 
+/// 占位符常量模块
+///
+/// 定义所有支持的占位符常量，拼写错误可在编译时捕获。
+pub mod placeholders {
+    /// 用户主目录
+    pub const HOME: &str = "<home>";
+    /// 应用数据目录 (AppData/Roaming)
+    pub const APPDATA: &str = "<appdata>";
+    /// 本地应用数据目录 (AppData/Local)
+    pub const LOCALAPPDATA: &str = "<localappdata>";
+    /// 文档目录
+    pub const DOCUMENTS: &str = "<documents>";
+    /// 桌面目录
+    pub const DESKTOP: &str = "<desktop>";
+    /// 下载目录
+    pub const DOWNLOADS: &str = "<downloads>";
+    /// 临时目录
+    pub const TEMP: &str = "<temp>";
+    /// Program Files 目录
+    pub const PROGRAM_FILES: &str = "<programfiles>";
+    /// Program Files (x86) 目录
+    pub const PROGRAM_FILES_X86: &str = "<programfilesx86>";
+}
+
 /// 占位符解析器类型：返回 `Option<String>`
 type PlaceholderResolver = fn() -> Option<String>;
 
@@ -33,57 +57,48 @@ static PLACEHOLDER_REGISTRY: LazyLock<HashMap<&'static str, PlaceholderResolver>
     LazyLock::new(|| {
         let mut map = HashMap::new();
 
-        // 用户主目录
         map.insert(
-            "<home>",
+            placeholders::HOME,
             (|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
         );
 
-        // 应用数据目录 (AppData/Roaming)
         map.insert(
-            "<appdata>",
+            placeholders::APPDATA,
             (|| dirs::data_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
         );
 
-        // 本地应用数据目录 (AppData/Local)
         map.insert(
-            "<localappdata>",
+            placeholders::LOCALAPPDATA,
             (|| dirs::data_local_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
         );
 
-        // 文档目录
         map.insert(
-            "<documents>",
+            placeholders::DOCUMENTS,
             (|| dirs::document_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
         );
 
-        // 桌面目录
         map.insert(
-            "<desktop>",
+            placeholders::DESKTOP,
             (|| dirs::desktop_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
         );
 
-        // 下载目录
         map.insert(
-            "<downloads>",
+            placeholders::DOWNLOADS,
             (|| dirs::download_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
         );
 
-        // 临时目录
         map.insert(
-            "<temp>",
+            placeholders::TEMP,
             (|| dirs::cache_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
         );
 
-        // Program Files 目录（环境变量）
         map.insert(
-            "<programfiles>",
+            placeholders::PROGRAM_FILES,
             (|| std::env::var("ProgramFiles").ok()) as PlaceholderResolver,
         );
 
-        // Program Files (x86) 目录（环境变量）
         map.insert(
-            "<programfilesx86>",
+            placeholders::PROGRAM_FILES_X86,
             (|| std::env::var("ProgramFiles(x86)").ok()) as PlaceholderResolver,
         );
 

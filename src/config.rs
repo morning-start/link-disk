@@ -10,6 +10,22 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
+use crate::link_ops::strategies as on_exists_strategies;
+
+/// 配置常量模块
+pub mod constants {
+    /// 符号链接类型
+    pub const SYMLINK: &str = "symlink";
+    /// 硬链接类型
+    pub const HARDLINK: &str = "hardlink";
+    /// 默认跳过策略
+    pub const DEFAULT_ON_EXISTS: &str = crate::link_ops::strategies::SKIP;
+    /// 默认链接类型
+    pub const DEFAULT_LINK_TYPE: &str = SYMLINK;
+    /// 默认源类型
+    pub const DEFAULT_SOURCE_TYPE: &str = "dir";
+}
+
 /// 顶层配置结构体
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -65,12 +81,12 @@ pub struct Source {
 
 /// 默认链接类型为符号链接
 fn default_link_type() -> String {
-    "symlink".to_string()
+    constants::DEFAULT_LINK_TYPE.to_string()
 }
 
 /// 默认源类型为目录
 fn default_source_type() -> String {
-    "dir".to_string()
+    constants::DEFAULT_SOURCE_TYPE.to_string()
 }
 
 impl Config {
@@ -96,13 +112,13 @@ impl Config {
             }
 
             match app_config.on_exists_strategy() {
-                "skip" | "replace" | "merge" | "overwrite" => {}
+                on_exists_strategies::SKIP | on_exists_strategies::REPLACE | on_exists_strategies::MERGE | on_exists_strategies::OVERWRITE => {}
                 other => anyhow::bail!("App '{}' has invalid on_exists strategy: '{}'", app_id, other),
             }
 
             for source in &app_config.sources {
                 match source.link_type.as_str() {
-                    "symlink" | "hardlink" => {}
+                    constants::SYMLINK | constants::HARDLINK => {}
                     other => anyhow::bail!("App '{}' has invalid link_type: '{}'", app_id, other),
                 }
 
@@ -133,6 +149,6 @@ impl Config {
 impl AppConfig {
     /// 获取目标已存在时的处理策略，默认返回 "skip"
     pub fn on_exists_strategy(&self) -> &str {
-        self.on_exists.as_deref().unwrap_or("skip")
+        self.on_exists.as_deref().unwrap_or(constants::DEFAULT_ON_EXISTS)
     }
 }

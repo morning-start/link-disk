@@ -29,13 +29,48 @@
 //! ```
 
 use anyhow::{Context, Result};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::LazyLock;
 
 use crate::dir_ops::DirOps;
 use crate::fs_utils::{FileSystem, FsUtils};
 
 // 重新导出 LinkStatus 和 LinkStatusChecker，保持向后兼容
 pub use crate::link_status::{LinkStatus, LinkStatusChecker};
+
+/// 策略工厂类型：返回 Box<dyn OnExistsStrategy>
+///
+/// 使用函数指针（fn）而非 trait object（dyn Fn），
+/// 使类型自动实现 Send + Sync，可用于 LazyLock。
+type StrategyFactory = fn() -> Box<dyn OnExistsStrategy>;
+
+/// OnExists 策略注册表
+///
+/// 静态不可变映射，在首次访问时初始化。
+/// 键为策略名称（如 "skip"），值为策略工厂函数。
+static STRATEGY_REGISTRY: LazyLock<HashMap<&'static str, StrategyFactory>> = LazyLock::new(|| {
+    let mut reg: HashMap<&'static str, StrategyFactory> = HashMap::new();
+    reg.insert("skip", skip_strategy_factory);
+    reg.insert("replace", replace_strategy_factory);
+    reg.insert("merge", merge_strategy_factory);
+    reg.insert("overwrite", overwrite_strategy_factory);
+    reg
+});
+
+// 策略工厂函数（用于注册表，满足 fn 类型要求）
+fn skip_strategy_factory() -> Box<dyn OnExistsStrategy> {
+    Box::new(SkipStrategy)
+}
+fn replace_strategy_factory() -> Box<dyn OnExistsStrategy> {
+    Box::new(ReplaceStrategy)
+}
+fn merge_strategy_factory() -> Box<dyn OnExistsStrategy> {
+    Box::new(MergeStrategy)
+}
+fn overwrite_strategy_factory() -> Box<dyn OnExistsStrategy> {
+    Box::new(OverwriteStrategy)
+}
 
 /// 链接操作工具类
 pub struct LinkOps;
@@ -84,13 +119,20 @@ impl OnExists {
     }
 
     /// 获取对应的策略实现（OCP: 开放封闭原则）
+    ///
+    /// 从策略注册表中获取对应的工厂函数并创建策略实例。
+    /// 符合开放封闭原则：添加新策略只需在注册表中注册。
     pub fn strategy(&self) -> Box<dyn OnExistsStrategy> {
-        match self {
-            Self::Skip => Box::new(SkipStrategy),
-            Self::Replace => Box::new(ReplaceStrategy),
-            Self::Merge => Box::new(MergeStrategy),
-            Self::Overwrite => Box::new(OverwriteStrategy),
-        }
+        let key = match self {
+            Self::Skip => "skip",
+            Self::Replace => "replace",
+            Self::Merge => "merge",
+            Self::Overwrite => "overwrite",
+        };
+        STRATEGY_REGISTRY
+            .get(key)
+            .map(|factory| factory())
+            .unwrap_or_else(|| Box::new(SkipStrategy))
     }
 }
 

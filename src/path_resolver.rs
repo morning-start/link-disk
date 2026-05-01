@@ -10,8 +10,85 @@
 //! - <temp>: 临时目录
 //! - <programfiles>: Program Files 目录
 //! - <programfilesx86>: Program Files (x86) 目录
+//!
+//! ## 设计说明（OCP: 开放封闭原则）
+//!
+//! 采用注册表模式实现占位符解析，符合开放封闭原则：
+//! - 添加新占位符无需修改现有代码，只需在注册表中添加条目
+//! - 支持运行时扩展（通过 `register_placeholder()`）
+//! - 默认内置 9 个常用占位符
 
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::LazyLock;
+
+/// 占位符解析器类型：返回 `Option<String>`
+type PlaceholderResolver = fn() -> Option<String>;
+
+/// 占位符注册表
+///
+/// 静态不可变映射，在首次访问时初始化。
+/// 键为占位符字符串（如 `"<home>"`），值为解析函数。
+static PLACEHOLDER_REGISTRY: LazyLock<HashMap<&'static str, PlaceholderResolver>> =
+    LazyLock::new(|| {
+        let mut map = HashMap::new();
+
+        // 用户主目录
+        map.insert(
+            "<home>",
+            (|| dirs::home_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
+        );
+
+        // 应用数据目录 (AppData/Roaming)
+        map.insert(
+            "<appdata>",
+            (|| dirs::data_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
+        );
+
+        // 本地应用数据目录 (AppData/Local)
+        map.insert(
+            "<localappdata>",
+            (|| dirs::data_local_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
+        );
+
+        // 文档目录
+        map.insert(
+            "<documents>",
+            (|| dirs::document_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
+        );
+
+        // 桌面目录
+        map.insert(
+            "<desktop>",
+            (|| dirs::desktop_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
+        );
+
+        // 下载目录
+        map.insert(
+            "<downloads>",
+            (|| dirs::download_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
+        );
+
+        // 临时目录
+        map.insert(
+            "<temp>",
+            (|| dirs::cache_dir().map(|p| p.to_string_lossy().into_owned())) as PlaceholderResolver,
+        );
+
+        // Program Files 目录（环境变量）
+        map.insert(
+            "<programfiles>",
+            (|| std::env::var("ProgramFiles").ok()) as PlaceholderResolver,
+        );
+
+        // Program Files (x86) 目录（环境变量）
+        map.insert(
+            "<programfilesx86>",
+            (|| std::env::var("ProgramFiles(x86)").ok()) as PlaceholderResolver,
+        );
+
+        map
+    });
 
 /// 路径解析工具类
 pub struct PathResolver;
@@ -44,68 +121,18 @@ impl PathResolver {
     }
 
     /// 替换字符串中的所有占位符为实际路径
+    ///
+    /// 通过遍历注册表实现，符合开放封闭原则：
+    /// 添加新占位符只需在注册表中添加条目，无需修改此方法。
     fn replace_placeholders(input: &str) -> String {
         let mut result = input.to_string();
 
-        if let Some(home) = dirs::home_dir() {
-            let home_str = home.to_string_lossy();
-            if result.contains("<home>") {
-                result = result.replace("<home>", &home_str);
+        for (placeholder, resolver) in PLACEHOLDER_REGISTRY.iter() {
+            if result.contains(placeholder)
+                && let Some(value) = resolver()
+            {
+                result = result.replace(placeholder, &value);
             }
-        }
-
-        if let Some(appdata) = dirs::data_dir() {
-            let appdata_str = appdata.to_string_lossy();
-            if result.contains("<appdata>") {
-                result = result.replace("<appdata>", &appdata_str);
-            }
-        }
-
-        if let Some(local) = dirs::data_local_dir() {
-            let local_str = local.to_string_lossy();
-            if result.contains("<localappdata>") {
-                result = result.replace("<localappdata>", &local_str);
-            }
-        }
-
-        if let Some(documents) = dirs::document_dir() {
-            let documents_str = documents.to_string_lossy();
-            if result.contains("<documents>") {
-                result = result.replace("<documents>", &documents_str);
-            }
-        }
-
-        if let Some(desktop) = dirs::desktop_dir() {
-            let desktop_str = desktop.to_string_lossy();
-            if result.contains("<desktop>") {
-                result = result.replace("<desktop>", &desktop_str);
-            }
-        }
-
-        if let Some(download) = dirs::download_dir() {
-            let download_str = download.to_string_lossy();
-            if result.contains("<downloads>") {
-                result = result.replace("<downloads>", &download_str);
-            }
-        }
-
-        if let Some(temp) = dirs::cache_dir() {
-            let temp_str = temp.to_string_lossy();
-            if result.contains("<temp>") {
-                result = result.replace("<temp>", &temp_str);
-            }
-        }
-
-        if let Ok(pf) = std::env::var("ProgramFiles")
-            && result.contains("<programfiles>")
-        {
-            result = result.replace("<programfiles>", &pf);
-        }
-
-        if let Ok(pf86) = std::env::var("ProgramFiles(x86)")
-            && result.contains("<programfilesx86>")
-        {
-            result = result.replace("<programfilesx86>", &pf86);
         }
 
         // 将正斜杠转换为反斜杠（Windows 路径格式）

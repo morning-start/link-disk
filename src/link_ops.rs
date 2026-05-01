@@ -5,7 +5,8 @@
 //! - 链接的删除（unlink）
 //! - 目标已存在时的处理策略
 //! - 链接状态检查
-//! - 目录合并操作
+//!
+//! 目录操作（合并、回移）已移至 [`crate::dir_ops::DirOps`]。
 //!
 //! ## API 参数约定
 //!
@@ -30,45 +31,11 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
+use crate::dir_ops::DirOps;
 use crate::fs_utils::{FileSystem, FsUtils};
 
-/// 链接状态枚举
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LinkStatus {
-    /// 链接正常，源是符号链接，目标是实际文件
-    Linked,
-    /// 链接存在但目标文件被删除
-    Broken,
-    /// 源和目标都存在（源不是链接）
-    BothExist,
-    /// 只有源位置存在文件
-    SourceOnly,
-    /// 只有目标位置存在文件
-    TargetOnly,
-    /// 源和目标都不存在
-    None,
-}
-
-impl LinkStatus {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Linked => "linked",
-            Self::Broken => "broken",
-            Self::BothExist => "both_exist",
-            Self::SourceOnly => "source_only",
-            Self::TargetOnly => "target_only",
-            Self::None => "none",
-        }
-    }
-
-    pub fn is_valid(&self) -> bool {
-        matches!(self, Self::Linked)
-    }
-
-    pub fn is_broken(&self) -> bool {
-        matches!(self, Self::Broken)
-    }
-}
+// 重新导出 LinkStatus 和 LinkStatusChecker，保持向后兼容
+pub use crate::link_status::{LinkStatus, LinkStatusChecker};
 
 /// 链接操作工具类
 pub struct LinkOps;
@@ -186,7 +153,7 @@ impl OnExistsStrategy for MergeStrategy {
         if verbose {
             println!("Merging directories: {:?} -> {:?}", source, target);
         }
-        LinkOps::merge_dirs(source, target, fs, verbose)?;
+        DirOps::merge_dirs(source, target, fs, verbose)?;
         Ok(OnExistsAction::ContinueWithoutMove)
     }
 }
@@ -382,12 +349,12 @@ impl LinkOps {
             fs.remove_if_exists(source, false)?;
 
             if !keep_files && target.exists() {
-                Self::move_back(target, source, fs)?;
+                DirOps::move_back(target, source, fs)?;
             }
         } else if source.exists() {
             anyhow::bail!("Source is not a symlink: {:?}", source);
         } else if target.exists() && !keep_files {
-            Self::move_back(target, source, fs)?;
+            DirOps::move_back(target, source, fs)?;
         }
 
         if verbose {
@@ -397,53 +364,7 @@ impl LinkOps {
         Ok(())
     }
 
-    /// 合并两个目录的内容（源目录合并到目标目录）
-    fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
-        if !source.is_dir() || !target.is_dir() {
-            anyhow::bail!("Merge requires both paths to be directories");
-        }
-
-        for entry in std::fs::read_dir(source)
-            .with_context(|| format!("Failed to read directory: {:?}", source))?
-        {
-            let entry = entry?;
-            let src_path = entry.path();
-            let dst_path = target.join(entry.file_name());
-
-            if src_path.is_dir() {
-                Self::merge_dirs(&src_path, &dst_path, fs, verbose)?;
-            } else if !dst_path.exists() {
-                std::fs::copy(&src_path, &dst_path)
-                    .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
-            } else if verbose {
-                println!("Skipping existing file: {:?}", dst_path);
-            }
-        }
-
-        fs.remove_if_exists(source, verbose)?;
-
-        Ok(())
-    }
-
-    /// 将目标位置的内容移回源位置
-    fn move_back(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<()> {
-        if !source.exists() {
-            anyhow::bail!("Target path does not exist: {:?}", source);
-        }
-
-        fs.ensure_parent_exists(target)?;
-
-        if source.is_dir() {
-            fs.copy_dir_recursive(source, target)?;
-            fs.remove_if_exists(source, false)?;
-        } else {
-            fs.rename(source, target)?;
-        }
-
-        Ok(())
-    }
-
-    /// 检查链接状态
+    /// 检查链接状态（委托给 LinkStatusChecker）
     ///
     /// 返回值说明：
     /// - Linked: 链接正常，目标和源都存在
@@ -453,18 +374,6 @@ impl LinkOps {
     /// - TargetOnly: 只有目标存在
     /// - None: 都不存在
     pub fn check_status(source: &Path, target: &Path) -> LinkStatus {
-        if source.is_symlink() {
-            if target.exists() { LinkStatus::Linked } else { LinkStatus::Broken }
-        } else if source.exists() {
-            if target.exists() {
-                LinkStatus::BothExist
-            } else {
-                LinkStatus::SourceOnly
-            }
-        } else if target.exists() {
-            LinkStatus::TargetOnly
-        } else {
-            LinkStatus::None
-        }
+        LinkStatusChecker::check(source, target)
     }
 }

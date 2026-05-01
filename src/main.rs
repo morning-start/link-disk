@@ -10,9 +10,11 @@ mod cli;
 mod commands;
 mod common;
 mod config;
+mod dir_ops;
 mod error;
 mod fs_utils;
 mod link_ops;
+mod link_status;
 mod path_resolver;
 mod workspace;
 

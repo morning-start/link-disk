@@ -35,11 +35,13 @@ impl LinkStatus {
     }
 
     /// 检查链接是否有效（状态为 Linked）
+    #[allow(dead_code)]
     pub fn is_valid(&self) -> bool {
         matches!(self, Self::Linked)
     }
 
     /// 检查链接是否损坏（状态为 Broken）
+    #[allow(dead_code)]
     pub fn is_broken(&self) -> bool {
         matches!(self, Self::Broken)
     }

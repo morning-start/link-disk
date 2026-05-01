@@ -55,6 +55,7 @@ impl Workspace {
     /// # 参数
     /// - `path`: 工作区根目录路径
     /// - `template`: 自定义配置模板（使用 `{}` 作为工作区路径占位符）
+    #[allow(dead_code)]
     pub fn init_with_template(path: &Path, template: &str) -> Result<PathBuf> {
         if !path.exists() {
             std::fs::create_dir_all(path)

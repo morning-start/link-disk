@@ -33,8 +33,8 @@ pub fn build_link_request(
     let request = LinkRequest {
         source: source_path.clone(),
         target: target_path.clone(),
-        link_type: LinkType::from_str(&source.link_type),
-        on_exists: OnExists::from_str(app_config.on_exists_strategy()),
+        link_type: LinkType::from_str_lossy(&source.link_type),
+        on_exists: OnExists::from_str_lossy(app_config.on_exists_strategy()),
         force,
     };
 

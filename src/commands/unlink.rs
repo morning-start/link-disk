@@ -52,7 +52,7 @@ fn unlink_app(
             println!("  Target: {:?}", target_path);
         }
 
-        LinkOps::unlink_with_fs(&source_path, &target_path, keep_files, fs, verbose)
+        LinkOps::unlink_with_fs(&source_path, &target_path, keep_files, fs)
             .with_context(|| format!("Failed to unlink {}:{}", app_id, source_display))?;
     }
 

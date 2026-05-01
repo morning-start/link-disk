@@ -31,6 +31,7 @@
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::LazyLock;
 use tracing::{info, debug};
 
@@ -99,8 +100,27 @@ pub enum LinkType {
     Hardlink,
 }
 
+impl FromStr for LinkType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "hardlink" => Ok(LinkType::Hardlink),
+            "symlink" => Ok(LinkType::Symlink),
+            _ => Err(format!("Unknown link type: {}", s)),
+        }
+    }
+}
+
 impl LinkType {
-    /// 从字符串解析链接类型，默认为 Symlink
+    /// 宽松解析：解析失败时默认为 Symlink
+    pub fn from_str_lossy(s: &str) -> Self {
+        <Self as FromStr>::from_str(s).unwrap_or(LinkType::Symlink)
+    }
+
+    #[deprecated(since = "1.2.0", note = "use FromStr trait instead")]
+    #[allow(dead_code)]
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Self {
         match s {
             "hardlink" | "Hardlink" | "HARDLINK" => LinkType::Hardlink,
@@ -122,15 +142,24 @@ pub enum OnExists {
     Replace,
 }
 
-impl OnExists {
-    /// 从字符串解析策略，默认为 Skip
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "merge" | "Merge" | "MERGE" => OnExists::Merge,
-            "overwrite" | "Overwrite" | "OVERWRITE" => OnExists::Overwrite,
-            "replace" | "Replace" | "REPLACE" => OnExists::Replace,
-            _ => OnExists::Skip,
+impl FromStr for OnExists {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "skip" => Ok(OnExists::Skip),
+            "replace" => Ok(OnExists::Replace),
+            "merge" => Ok(OnExists::Merge),
+            "overwrite" => Ok(OnExists::Overwrite),
+            _ => Err(format!("Unknown on_exists strategy: {}", s)),
         }
+    }
+}
+
+impl OnExists {
+    /// 宽松解析：解析失败时默认为 Skip
+    pub fn from_str_lossy(s: &str) -> Self {
+        <Self as FromStr>::from_str(s).unwrap_or(OnExists::Skip)
     }
 
     /// 获取对应的策略实现（OCP: 开放封闭原则）
@@ -148,6 +177,18 @@ impl OnExists {
             .get(key)
             .map(|factory| factory())
             .unwrap_or_else(|| Box::new(SkipStrategy))
+    }
+
+    #[deprecated(since = "1.2.0", note = "use FromStr trait instead")]
+    #[allow(dead_code)]
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "merge" | "Merge" | "MERGE" => OnExists::Merge,
+            "overwrite" | "Overwrite" | "OVERWRITE" => OnExists::Overwrite,
+            "replace" | "Replace" | "REPLACE" => OnExists::Replace,
+            _ => OnExists::Skip,
+        }
     }
 }
 
@@ -183,7 +224,7 @@ struct SkipStrategy;
 impl OnExistsStrategy for SkipStrategy {
     fn execute(&self, _source: &Path, target: &Path, _fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            println!("Target already exists, skipping: {:?}", target);
+            info!("Target already exists, skipping: {:?}", target);
         }
         Ok(OnExistsAction::Skip)
     }
@@ -195,7 +236,7 @@ struct ReplaceStrategy;
 impl OnExistsStrategy for ReplaceStrategy {
     fn execute(&self, _source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            println!("Removing existing target: {:?}", target);
+            info!("Removing existing target: {:?}", target);
         }
         fs.remove_if_exists(target, verbose)?;
         Ok(OnExistsAction::ContinueWithMove)
@@ -208,7 +249,7 @@ struct MergeStrategy;
 impl OnExistsStrategy for MergeStrategy {
     fn execute(&self, source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            println!("Merging directories: {:?} -> {:?}", source, target);
+            info!("Merging directories: {:?} -> {:?}", source, target);
         }
         DirOps::merge_dirs(source, target, fs, verbose)?;
         Ok(OnExistsAction::ContinueWithoutMove)
@@ -221,7 +262,7 @@ struct OverwriteStrategy;
 impl OnExistsStrategy for OverwriteStrategy {
     fn execute(&self, source: &Path, _target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            println!("Removing source for overwrite: {:?}", source);
+            info!("Removing source for overwrite: {:?}", source);
         }
         fs.remove_if_exists(source, verbose)?;
         Ok(OnExistsAction::ContinueWithMove)
@@ -247,6 +288,7 @@ impl LinkOps {
     ///
     /// @deprecated 推荐使用 `link_with_fs()` 显式传入文件系统实现
     #[deprecated(note = "Use `link_with_fs()` with explicit FileSystem dependency")]
+    #[allow(dead_code)]
     pub fn link(request: &LinkRequest, verbose: bool) -> Result<()> {
         let fs = FsUtils;
         Self::link_with_fs(request, &fs, verbose)
@@ -307,7 +349,7 @@ impl LinkOps {
 
         if force {
             if verbose {
-                println!("Force: removing existing symlink: {:?}", source);
+                info!("Force: removing existing symlink: {:?}", source);
             }
             return fs.remove_if_exists(source, false);
         }
@@ -317,7 +359,7 @@ impl LinkOps {
             let normalized_target = fs.normalize_path(target);
             if normalized_linked == normalized_target {
                 if verbose {
-                    println!("Already linked: {:?} -> {:?}", source, target_path);
+                    info!("Already linked: {:?} -> {:?}", source, target_path);
                 }
                 return Ok(());
             }
@@ -353,7 +395,7 @@ impl LinkOps {
     /// 当源不存在时，准备目标目录结构用于创建链接
     fn prepare_target_for_link(target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
         if verbose {
-            println!("Source does not exist, creating target directory structure...");
+            info!("Source does not exist, creating target directory structure...");
         }
         fs.ensure_parent_exists(target)?;
         if !target.exists() {
@@ -374,20 +416,20 @@ impl LinkOps {
         match link_type {
             LinkType::Symlink => {
                 if verbose {
-                    println!("Creating symlink: {:?} -> {:?}", source, target);
+                    info!("Creating symlink: {:?} -> {:?}", source, target);
                 }
                 fs.create_symlink(target, source)?;
             }
             LinkType::Hardlink => {
                 if verbose {
-                    println!("Creating hardlink: {:?} -> {:?}", source, target);
+                    info!("Creating hardlink: {:?} -> {:?}", source, target);
                 }
                 fs.hard_link(target, source)?;
             }
         }
 
         if verbose {
-            println!("Successfully linked: {:?} -> {:?}", source, target);
+            info!("Successfully linked: {:?} -> {:?}", source, target);
         }
 
         Ok(())
@@ -397,13 +439,14 @@ impl LinkOps {
     ///
     /// @deprecated 推荐使用 `unlink_with_fs()` 显式传入文件系统实现
     #[deprecated(note = "Use `unlink_with_fs()` with explicit FileSystem dependency")]
-    pub fn unlink(source: &Path, target: &Path, keep_files: bool, verbose: bool) -> Result<()> {
+    #[allow(dead_code)]
+    pub fn unlink(source: &Path, target: &Path, keep_files: bool, _verbose: bool) -> Result<()> {
         let fs = FsUtils;
-        Self::unlink_with_fs(source, target, keep_files, &fs, verbose)
+        Self::unlink_with_fs(source, target, keep_files, &fs)
     }
 
     /// 删除链接（支持依赖注入版本）
-    pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem, _verbose: bool) -> Result<()> {
+    pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem) -> Result<()> {
         info!("Unlinking: {:?} -> {:?}", source, target);
         debug!("Keep files: {}", keep_files);
 

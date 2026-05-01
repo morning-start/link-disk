@@ -6,6 +6,26 @@
 //! - 目标已存在时的处理策略
 //! - 链接状态检查
 //! - 目录合并操作
+//!
+//! ## API 参数约定
+//!
+//! 本模块遵循统一的参数风格：
+//! - **输入参数**（只读访问）：使用 `&Path` 引用
+//! - **返回值**（调用者需要所有权）：使用 `PathBuf`
+//! - **结构体字段**（需要存储）：使用 `PathBuf`
+//!
+//! ### 公开方法签名示例
+//! ```rust
+//! // ✅ 正确：输入参数使用 &Path
+//! pub fn unlink(source: &Path, target: &Path, ...) -> Result<()>;
+//! pub fn check_status(source: &Path, target: &Path) -> LinkStatus;
+//!
+//! // ✅ 正确：结构体字段使用 PathBuf（需要所有权）
+//! pub struct LinkRequest {
+//!     pub source: PathBuf,
+//!     pub target: PathBuf,
+//! }
+//! ```
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};

@@ -47,6 +47,7 @@ fn unlink_app(
     for source in &app_config.sources {
         let source_path = PathResolver::resolve_if_exists(&source.source)
             .unwrap_or_else(|| PathResolver::expand(&source.source).into());
+        let source_display = PathResolver::expand(&source.source);
 
         let target_relative = format!("{}/{}", app_config.name, source.target);
         let target_path = Workspace::resolve_target(workspace_path, &target_relative);
@@ -57,7 +58,7 @@ fn unlink_app(
         }
 
         LinkOps::unlink(&source_path, &target_path, keep_files, verbose)
-            .with_context(|| format!("Failed to unlink {}:{}", app_id, source.source))?;
+            .with_context(|| format!("Failed to unlink {}:{}", app_id, source_display))?;
     }
 
     Ok(())

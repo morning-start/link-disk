@@ -23,6 +23,7 @@ fn check_app_status(app_config: &AppConfig) {
 
     for source in &app_config.sources {
         let source_path: std::path::PathBuf = PathResolver::expand(&source.source).into();
+        let source_display = PathResolver::expand(&source.source);
         let status = LinkOps::check_status(
             &source_path,
             &std::path::PathBuf::from(&source.target),
@@ -34,6 +35,6 @@ fn check_app_status(app_config: &AppConfig) {
             _ => "?",
         };
 
-        println!("  {} {} -> {}", status_icon, source.source, status.as_str());
+        println!("  {} {} -> {}", status_icon, source_display, status.as_str());
     }
 }

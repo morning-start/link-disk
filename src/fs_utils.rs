@@ -1,6 +1,6 @@
 //! 文件系统工具模块
 //!
-//! 提供文件系统底层操作的封装，包括：
+//! 提供文件系统底层操作的封装和抽象接口，包括：
 //! - 目录递归复制
 //! - 跨文件系统移动（复制+删除）
 //! - 路径规范化处理
@@ -11,12 +11,64 @@
 use anyhow::{Context, Result};
 use std::path::Path;
 
-/// 文件系统操作工具类
+/// 文件系统操作抽象 trait（DIP: 依赖倒置原则）
+///
+/// 通过此 trait 可以替换文件系统实现，便于测试和扩展。
+pub trait FileSystem {
+    /// 递归复制目录及其所有内容
+    fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()>;
+
+    /// 跨文件系统移动（先复制再删除原位置）
+    fn move_dir_cross_filesystem(&self, src: &Path, dst: &Path) -> Result<()>;
+
+    /// 规范化路径（统一使用正斜杠并转为小写）
+    fn normalize_path(&self, path: &Path) -> String;
+
+    /// 确保路径的父目录存在，不存在则创建
+    fn ensure_parent_exists(&self, path: &Path) -> Result<()>;
+
+    /// 安全删除文件、目录或符号链接
+    fn remove_if_exists(&self, path: &Path, verbose: bool) -> Result<()>;
+
+    /// 重命名文件或目录
+    fn rename(&self, src: &Path, dst: &Path) -> Result<()>;
+
+    /// 创建符号链接（自动检测目标类型选择正确的方法）
+    fn create_symlink(&self, target: &Path, link: &Path) -> Result<()>;
+
+    /// 读取符号链接指向的目标路径
+    fn read_link(&self, path: &Path) -> Option<std::path::PathBuf>;
+
+    /// 创建硬链接
+    fn hard_link(&self, target: &Path, link: &Path) -> Result<()>;
+}
+
+/// 文件系统操作工具类（默认实现）
 pub struct FsUtils;
 
 impl FsUtils {
-    /// 递归复制目录及其所有内容
-    pub fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
+    /// 删除符号链接（Windows 上区分目录/文件符号链接）
+    ///
+    /// 这是一个内部辅助方法，不在 FileSystem trait 中暴露。
+    fn remove_symlink(path: &Path) -> Result<()> {
+        #[cfg(windows)]
+        {
+            if std::fs::remove_dir(path).is_err() {
+                std::fs::remove_file(path)?;
+            }
+            Ok(())
+        }
+
+        #[cfg(not(windows))]
+        {
+            std::fs::remove_file(path)
+                .with_context(|| format!("Failed to remove symlink: {:?}", path))
+        }
+    }
+}
+
+impl FileSystem for FsUtils {
+    fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()> {
         if !dst.exists() {
             std::fs::create_dir_all(dst)
                 .with_context(|| format!("Failed to create directory: {:?}", dst))?;
@@ -30,7 +82,7 @@ impl FsUtils {
             let dst_path = dst.join(entry.file_name());
 
             if src_path.is_dir() {
-                Self::copy_dir_recursive(&src_path, &dst_path)?;
+                self.copy_dir_recursive(&src_path, &dst_path)?;
             } else {
                 std::fs::copy(&src_path, &dst_path)
                     .with_context(|| format!("Failed to copy {:?} to {:?}", src_path, dst_path))?;
@@ -40,28 +92,25 @@ impl FsUtils {
         Ok(())
     }
 
-    /// 跨文件系统移动（先复制再删除原位置）
-    pub fn move_dir_cross_filesystem(src: &Path, dst: &Path) -> Result<()> {
+    fn move_dir_cross_filesystem(&self, src: &Path, dst: &Path) -> Result<()> {
         if src.is_file() {
             std::fs::copy(src, dst)
                 .with_context(|| format!("Failed to copy file from {:?} to {:?}", src, dst))?;
             std::fs::remove_file(src)
                 .with_context(|| format!("Failed to remove source file: {:?}", src))?;
         } else {
-            Self::copy_dir_recursive(src, dst)?;
+            self.copy_dir_recursive(src, dst)?;
             std::fs::remove_dir_all(src)
                 .with_context(|| format!("Failed to remove source directory: {:?}", src))?;
         }
         Ok(())
     }
 
-    /// 规范化路径（统一使用正斜杠并转为小写）
-    pub fn normalize_path(path: &Path) -> String {
+    fn normalize_path(&self, path: &Path) -> String {
         path.to_string_lossy().replace("\\", "/").to_lowercase()
     }
 
-    /// 确保路径的父目录存在，不存在则创建
-    pub fn ensure_parent_exists(path: &Path) -> Result<()> {
+    fn ensure_parent_exists(&self, path: &Path) -> Result<()> {
         if let Some(parent) = path.parent()
             && !parent.exists()
         {
@@ -71,8 +120,7 @@ impl FsUtils {
         Ok(())
     }
 
-    /// 安全删除文件、目录或符号链接
-    pub fn remove_if_exists(path: &Path, verbose: bool) -> Result<()> {
+    fn remove_if_exists(&self, path: &Path, verbose: bool) -> Result<()> {
         if path.is_symlink() {
             if verbose {
                 println!("Removing symlink: {:?}", path);
@@ -100,45 +148,23 @@ impl FsUtils {
         Ok(())
     }
 
-    /// 删除符号链接（Windows 上区分目录/文件符号链接）
-    fn remove_symlink(path: &Path) -> Result<()> {
-        #[cfg(windows)]
-        {
-            // Windows 上：先尝试 remove_dir（目录符号链接），失败则尝试 remove_file（文件符号链接）
-            if std::fs::remove_dir(path).is_err() {
-                std::fs::remove_file(path)?;
-            }
-            Ok(())
-        }
-
-        #[cfg(not(windows))]
-        {
-            // Unix 系统上统一使用 remove_file
-            std::fs::remove_file(path)
-                .with_context(|| format!("Failed to remove symlink: {:?}", path))
-        }
-    }
-
-    /// 重命名文件或目录
-    pub fn rename(src: &Path, dst: &Path) -> Result<()> {
+    fn rename(&self, src: &Path, dst: &Path) -> Result<()> {
         std::fs::rename(src, dst)
             .with_context(|| format!("Failed to rename {:?} to {:?}", src, dst))?;
         Ok(())
     }
 
-    /// 创建符号链接（自动检测目标类型选择正确的方法）
-    pub fn create_symlink(target: &Path, link: &Path) -> Result<()> {
+    fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
         if link.is_symlink() {
             std::fs::remove_file(link)
                 .with_context(|| format!("Failed to remove existing symlink: {:?}", link))?;
         }
 
         if link.exists() {
-            Self::remove_if_exists(link, false)?;
+            self.remove_if_exists(link, false)?;
         }
 
         if target.is_dir() {
-            // 创建目录符号链接
             #[cfg(windows)]
             std::os::windows::fs::symlink_dir(target, link).with_context(|| {
                 format!(
@@ -155,7 +181,6 @@ impl FsUtils {
                 )
             })?;
         } else {
-            // 创建文件符号链接
             #[cfg(windows)]
             std::os::windows::fs::symlink_file(target, link).with_context(|| {
                 format!(
@@ -175,13 +200,11 @@ impl FsUtils {
         Ok(())
     }
 
-    /// 读取符号链接指向的目标路径
-    pub fn read_link(path: &Path) -> Option<std::path::PathBuf> {
+    fn read_link(&self, path: &Path) -> Option<std::path::PathBuf> {
         std::fs::read_link(path).ok()
     }
 
-    /// 创建硬链接
-    pub fn hard_link(target: &Path, link: &Path) -> Result<()> {
+    fn hard_link(&self, target: &Path, link: &Path) -> Result<()> {
         std::fs::hard_link(target, link).with_context(|| {
             format!(
                 "Failed to create hardlink at {:?} pointing to {:?}",

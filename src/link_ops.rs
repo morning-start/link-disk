@@ -10,7 +10,7 @@
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-use crate::fs_utils::FsUtils;
+use crate::fs_utils::{FileSystem, FsUtils};
 
 /// 链接状态枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -95,6 +95,93 @@ impl OnExists {
             _ => OnExists::Skip,
         }
     }
+
+    /// 获取对应的策略实现（OCP: 开放封闭原则）
+    pub fn strategy(&self) -> Box<dyn OnExistsStrategy> {
+        match self {
+            Self::Skip => Box::new(SkipStrategy),
+            Self::Replace => Box::new(ReplaceStrategy),
+            Self::Merge => Box::new(MergeStrategy),
+            Self::Overwrite => Box::new(OverwriteStrategy),
+        }
+    }
+}
+
+/// 策略执行结果：指示主流程如何继续
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OnExistsAction {
+    /// 跳过后续操作
+    Skip,
+    /// 继续移动源文件到目标
+    ContinueWithMove,
+    /// 继续但不移动文件（如 Merge 后直接创建链接）
+    ContinueWithoutMove,
+}
+
+/// on_exists 策略 trait（OCP: 开放封闭原则）
+///
+/// 实现此 trait 可以定义新的目标已存在处理策略，
+/// 无需修改 LinkOps::link() 主流程。
+pub trait OnExistsStrategy {
+    /// 执行策略逻辑，返回行动指令
+    fn execute(
+        &self,
+        source: &Path,
+        target: &Path,
+        fs: &dyn FileSystem,
+        verbose: bool,
+    ) -> Result<OnExistsAction>;
+}
+
+/// Skip 策略：跳过，不执行任何操作
+struct SkipStrategy;
+
+impl OnExistsStrategy for SkipStrategy {
+    fn execute(&self, _source: &Path, target: &Path, _fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
+        if verbose {
+            println!("Target already exists, skipping: {:?}", target);
+        }
+        Ok(OnExistsAction::Skip)
+    }
+}
+
+/// Replace 策略：删除目标后继续移动
+struct ReplaceStrategy;
+
+impl OnExistsStrategy for ReplaceStrategy {
+    fn execute(&self, _source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
+        if verbose {
+            println!("Removing existing target: {:?}", target);
+        }
+        fs.remove_if_exists(target, verbose)?;
+        Ok(OnExistsAction::ContinueWithMove)
+    }
+}
+
+/// Merge 策略：合并目录内容后不移动
+struct MergeStrategy;
+
+impl OnExistsStrategy for MergeStrategy {
+    fn execute(&self, source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
+        if verbose {
+            println!("Merging directories: {:?} -> {:?}", source, target);
+        }
+        LinkOps::merge_dirs(source, target, fs, verbose)?;
+        Ok(OnExistsAction::ContinueWithoutMove)
+    }
+}
+
+/// Overwrite 策略：删除源文件后继续移动
+struct OverwriteStrategy;
+
+impl OnExistsStrategy for OverwriteStrategy {
+    fn execute(&self, source: &Path, _target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
+        if verbose {
+            println!("Removing source for overwrite: {:?}", source);
+        }
+        fs.remove_if_exists(source, verbose)?;
+        Ok(OnExistsAction::ContinueWithMove)
+    }
 }
 
 /// 链接请求结构体
@@ -112,35 +199,43 @@ pub struct LinkRequest {
 }
 
 impl LinkOps {
+    /// 创建链接（便捷方法，使用默认的 FsUtils 实现）
+    pub fn link(request: &LinkRequest, verbose: bool) -> Result<()> {
+        let fs = FsUtils;
+        Self::link_with_fs(request, &fs, verbose)
+    }
+
     /// 创建链接：将源路径的内容转移到目标路径，然后在源位置创建链接指向目标
+    ///
+    /// 支持通过 FileSystem trait 注入不同的文件系统实现，便于测试。
     ///
     /// # 流程
     /// 1. 检查并处理已存在的符号链接（force 逻辑）
     /// 2. 根据策略处理目标已存在的情况
     /// 3. 移动源内容到目标（或准备目标目录结构）
     /// 4. 在源位置创建指向目标的链接
-    pub fn link(request: &LinkRequest, verbose: bool) -> Result<()> {
+    pub fn link_with_fs(request: &LinkRequest, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
         let source = &request.source;
         let target = &request.target;
 
         Self::log_link_request(source, target, request);
 
         // 步骤1: 符号链接检查与处理
-        Self::check_and_handle_symlink(source, target, request.force, verbose)?;
+        Self::check_and_handle_symlink(source, target, request.force, fs, verbose)?;
 
         // 步骤2-3: 处理源/目标存在性 + 移动文件或准备目录
         if source.exists() {
-            let should_continue = Self::handle_on_exists(source, target, request.on_exists, verbose)?;
+            let should_continue = Self::handle_on_exists(source, target, request.on_exists, fs, verbose)?;
             if !should_continue { return Ok(()); }
 
-            FsUtils::ensure_parent_exists(target)?;
-            FsUtils::move_dir_cross_filesystem(source, target)?;
+            fs.ensure_parent_exists(target)?;
+            fs.move_dir_cross_filesystem(source, target)?;
         } else {
-            Self::prepare_target_for_link(target, verbose)?;
+            Self::prepare_target_for_link(target, fs, verbose)?;
         }
 
         // 步骤4: 创建链接
-        Self::create_link(source, target, request.link_type, verbose)
+        Self::create_link(source, target, request.link_type, fs, verbose)
     }
 
     fn log_link_request(source: &Path, target: &Path, request: &LinkRequest) {
@@ -158,6 +253,7 @@ impl LinkOps {
         source: &Path,
         target: &Path,
         force: bool,
+        fs: &dyn FileSystem,
         verbose: bool,
     ) -> Result<()> {
         if !source.is_symlink() { return Ok(()); }
@@ -166,12 +262,12 @@ impl LinkOps {
             if verbose {
                 println!("Force: removing existing symlink: {:?}", source);
             }
-            return FsUtils::remove_if_exists(source, false);
+            return fs.remove_if_exists(source, false);
         }
 
-        if let Some(target_path) = FsUtils::read_link(source) {
-            let normalized_linked = FsUtils::normalize_path(&target_path);
-            let normalized_target = FsUtils::normalize_path(target);
+        if let Some(target_path) = fs.read_link(source) {
+            let normalized_linked = fs.normalize_path(&target_path);
+            let normalized_target = fs.normalize_path(target);
             if normalized_linked == normalized_target {
                 if verbose {
                     println!("Already linked: {:?} -> {:?}", source, target_path);
@@ -186,56 +282,33 @@ impl LinkOps {
         )
     }
 
-    /// 处理 on_exists 策略，返回是否需要继续执行移动和链接操作
+    /// 处理 on_exists 策略（使用策略模式）
     ///
-    /// 返回值：
-    /// - `Ok(true)`: 继续执行（需要移动文件）
-    /// - `Ok(false)`: 跳过后续操作（Skip 策略或 Merge 后直接结束）
+    /// 通过 OnExistsStrategy trait 实现开放封闭原则，
+    /// 添加新策略无需修改此方法。
     fn handle_on_exists(
         source: &Path,
         target: &Path,
-        strategy: OnExists,
+        on_exists: OnExists,
+        fs: &dyn FileSystem,
         verbose: bool,
     ) -> Result<bool> {
         if !target.exists() { return Ok(true); }
 
-        match strategy {
-            OnExists::Skip => {
-                if verbose {
-                    println!("Target already exists, skipping: {:?}", target);
-                }
-                Ok(false)
-            }
-            OnExists::Replace => {
-                if verbose {
-                    println!("Removing existing target: {:?}", target);
-                }
-                FsUtils::remove_if_exists(target, verbose)?;
-                Ok(true)
-            }
-            OnExists::Merge => {
-                if verbose {
-                    println!("Merging directories: {:?} -> {:?}", source, target);
-                }
-                Self::merge_dirs(source, target, verbose)?;
-                Ok(false)
-            }
-            OnExists::Overwrite => {
-                if verbose {
-                    println!("Removing source for overwrite: {:?}", source);
-                }
-                FsUtils::remove_if_exists(source, verbose)?;
-                Ok(true)
-            }
+        let strategy = on_exists.strategy();
+        match strategy.execute(source, target, fs, verbose)? {
+            OnExistsAction::Skip => Ok(false),
+            OnExistsAction::ContinueWithMove => Ok(true),
+            OnExistsAction::ContinueWithoutMove => Ok(false),
         }
     }
 
     /// 当源不存在时，准备目标目录结构用于创建链接
-    fn prepare_target_for_link(target: &Path, verbose: bool) -> Result<()> {
+    fn prepare_target_for_link(target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
         if verbose {
             println!("Source does not exist, creating target directory structure...");
         }
-        FsUtils::ensure_parent_exists(target)?;
+        fs.ensure_parent_exists(target)?;
         if !target.exists() {
             std::fs::create_dir_all(target)
                 .with_context(|| format!("Failed to create target directory: {:?}", target))?;
@@ -248,6 +321,7 @@ impl LinkOps {
         source: &Path,
         target: &Path,
         link_type: LinkType,
+        fs: &dyn FileSystem,
         verbose: bool,
     ) -> Result<()> {
         match link_type {
@@ -255,13 +329,13 @@ impl LinkOps {
                 if verbose {
                     println!("Creating symlink: {:?} -> {:?}", source, target);
                 }
-                FsUtils::create_symlink(target, source)?;
+                fs.create_symlink(target, source)?;
             }
             LinkType::Hardlink => {
                 if verbose {
                     println!("Creating hardlink: {:?} -> {:?}", source, target);
                 }
-                FsUtils::hard_link(target, source)?;
+                fs.hard_link(target, source)?;
             }
         }
 
@@ -274,20 +348,26 @@ impl LinkOps {
 
     /// 删除链接：移除源位置的链接，可选择将目标位置的文件移回源位置
     pub fn unlink(source: &Path, target: &Path, keep_files: bool, verbose: bool) -> Result<()> {
+        let fs = FsUtils;
+        Self::unlink_with_fs(source, target, keep_files, &fs, verbose)
+    }
+
+    /// 删除链接（支持依赖注入版本）
+    pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
         if verbose {
             println!("Unlinking: {:?} -> {:?}", source, target);
         }
 
         if source.is_symlink() {
-            FsUtils::remove_if_exists(source, false)?;
+            fs.remove_if_exists(source, false)?;
 
             if !keep_files && target.exists() {
-                Self::move_back(target, source)?;
+                Self::move_back(target, source, fs)?;
             }
         } else if source.exists() {
             anyhow::bail!("Source is not a symlink: {:?}", source);
         } else if target.exists() && !keep_files {
-            Self::move_back(target, source)?;
+            Self::move_back(target, source, fs)?;
         }
 
         if verbose {
@@ -298,7 +378,7 @@ impl LinkOps {
     }
 
     /// 合并两个目录的内容（源目录合并到目标目录）
-    fn merge_dirs(source: &Path, target: &Path, verbose: bool) -> Result<()> {
+    fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
         if !source.is_dir() || !target.is_dir() {
             anyhow::bail!("Merge requires both paths to be directories");
         }
@@ -311,7 +391,7 @@ impl LinkOps {
             let dst_path = target.join(entry.file_name());
 
             if src_path.is_dir() {
-                Self::merge_dirs(&src_path, &dst_path, verbose)?;
+                Self::merge_dirs(&src_path, &dst_path, fs, verbose)?;
             } else if !dst_path.exists() {
                 std::fs::copy(&src_path, &dst_path)
                     .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
@@ -320,24 +400,24 @@ impl LinkOps {
             }
         }
 
-        FsUtils::remove_if_exists(source, verbose)?;
+        fs.remove_if_exists(source, verbose)?;
 
         Ok(())
     }
 
     /// 将目标位置的内容移回源位置
-    fn move_back(source: &Path, target: &Path) -> Result<()> {
+    fn move_back(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<()> {
         if !source.exists() {
             anyhow::bail!("Target path does not exist: {:?}", source);
         }
 
-        FsUtils::ensure_parent_exists(target)?;
+        fs.ensure_parent_exists(target)?;
 
         if source.is_dir() {
-            FsUtils::copy_dir_recursive(source, target)?;
-            FsUtils::remove_if_exists(source, false)?;
+            fs.copy_dir_recursive(source, target)?;
+            fs.remove_if_exists(source, false)?;
         } else {
-            FsUtils::rename(source, target)?;
+            fs.rename(source, target)?;
         }
 
         Ok(())

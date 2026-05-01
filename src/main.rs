@@ -86,7 +86,7 @@ fn run() -> Result<()> {
 /// 加载配置文件
 fn load_config(config_path: &Option<String>) -> Result<Config> {
     let path = match config_path {
-        Some(p) => workspace::Workspace::expand_path(p),
+        Some(p) => path_resolver::PathResolver::expand_home(p),
         None => workspace::Workspace::config_path()?,
     };
 

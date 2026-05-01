@@ -22,6 +22,20 @@ impl PathResolver {
         Self::replace_placeholders(path)
     }
 
+    /// 展开路径中的 ~ 前缀为用户主目录
+    pub fn expand_home(path: &str) -> PathBuf {
+        if path.starts_with("~")
+            && let Some(home) = dirs::home_dir()
+        {
+            return home.join(
+                path.trim_start_matches("~")
+                    .trim_start_matches('/')
+                    .trim_start_matches('\\'),
+            );
+        }
+        PathBuf::from(path)
+    }
+
     /// 展开路径并检查是否存在，存在则返回 Some(PathBuf)
     pub fn resolve_if_exists(path: &str) -> Option<PathBuf> {
         let expanded = Self::replace_placeholders(path);

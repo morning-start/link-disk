@@ -1,0 +1,42 @@
+# link-disk 配置文件
+# on_exists: skip | overwrite | fail
+#   - skip: 不处理已存在的链接
+#   - overwrite: 覆盖已存在的链接
+#   - fail: 抛出错误
+# link_type: symlink | hardlink
+#   - symlink: 创建符号链接
+#   - hardlink: 创建硬链接
+
+
+[workspace]
+path = "{}"
+
+[apps.vscode]
+name = "VSCode"
+enabled = true
+on_exists = "skip"
+
+[[apps.vscode.sources]]
+source = "<home>/AppData/Roaming/Code"
+target = "Roaming"
+link_type = "symlink"
+_source_type = "dir"
+
+[[apps.vscode.sources]]
+source = "<home>/.vscode"
+target = "config"
+link_type = "symlink"
+_source_type = "dir"
+
+[apps.chrome]
+name = "Chrome"
+enabled = true
+on_exists = "skip"
+
+[[apps.chrome.sources]]
+source = "<home>/AppData/Local/Google/Chrome"
+target = "Local"
+link_type = "symlink"
+_source_type = "dir"
+
+

@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use crate::common::app_resolver::resolve_apps;
 use crate::common::request_builder::resolve_paths;
 use crate::config::Config;
+use crate::fs_utils::{FsUtils, FileSystem};
 use crate::link_ops::LinkOps;
 
 /// 处理 unlink 命令：删除链接并可选择移回文件
@@ -15,6 +16,7 @@ pub fn handle_unlink(
     keep_files: bool,
     verbose: bool,
 ) -> Result<()> {
+    let fs = FsUtils;
     let apps_to_unlink = resolve_apps(config, apps, all);
 
     for app_id in apps_to_unlink {
@@ -24,7 +26,7 @@ pub fn handle_unlink(
             println!("\nUnlinking app: {}", app_config.name);
         }
 
-        unlink_app(config, app_id, app_config, keep_files, verbose)?;
+        unlink_app(config, app_id, app_config, &fs, keep_files, verbose)?;
     }
 
     Ok(())
@@ -35,6 +37,7 @@ fn unlink_app(
     config: &Config,
     app_id: &str,
     app_config: &crate::config::AppConfig,
+    fs: &dyn FileSystem,
     keep_files: bool,
     verbose: bool,
 ) -> Result<()> {
@@ -49,7 +52,7 @@ fn unlink_app(
             println!("  Target: {:?}", target_path);
         }
 
-        LinkOps::unlink(&source_path, &target_path, keep_files, verbose)
+        LinkOps::unlink_with_fs(&source_path, &target_path, keep_files, fs, verbose)
             .with_context(|| format!("Failed to unlink {}:{}", app_id, source_display))?;
     }
 

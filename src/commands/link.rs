@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use crate::common::app_resolver::resolve_apps;
 use crate::common::request_builder::build_link_request;
 use crate::config::{AppConfig, Config};
-use crate::fs_utils::{FsUtils, FileSystem};
+use crate::fs_utils::{FsUtils, FileSystem, FsWriter};
 use crate::link_ops::LinkOps;
 use crate::path_resolver::PathResolver;
 use crate::workspace::Workspace;
@@ -21,11 +21,12 @@ pub fn handle_link(
     verbose: bool,
 ) -> Result<()> {
     let workspace_path = &config.workspace.path;
+    let fs = FsUtils;
+    
     if !workspace_path.exists() {
         if verbose {
             println!("Creating workspace directory: {:?}", workspace_path);
         }
-        let fs = FsUtils;
         fs.ensure_parent_exists(workspace_path)?;
     }
 
@@ -43,7 +44,7 @@ pub fn handle_link(
             println!("\nLinking app: {}", app_config.name);
         }
 
-        link_app(config, app_id, app_config, dry_run, force, verbose)?;
+        link_app(config, app_id, app_config, &fs, dry_run, force, verbose)?;
     }
 
     Ok(())
@@ -54,6 +55,7 @@ fn link_app(
     config: &Config,
     app_id: &str,
     app_config: &AppConfig,
+    fs: &dyn FileSystem,
     dry_run: bool,
     force: bool,
     verbose: bool,
@@ -88,7 +90,7 @@ fn link_app(
         let display_name = &app_config.name;
         let mut sp = Spinner::new(Spinners::Dots12, format!("  Linking {}...", display_name));
 
-        match LinkOps::link(&request, verbose) {
+        match LinkOps::link_with_fs(&request, fs, verbose) {
             Ok(_) => {
                 sp.stop();
                 println!("  ✓ Linked: {} ({})", display_name, source_name);

@@ -12,11 +12,12 @@ use crate::workspace::Workspace;
 
 /// 处理 repair 命令：修复损坏的链接
 pub fn handle_repair(config: &Config, apps: &[String], force: bool, verbose: bool) -> Result<()> {
+    let fs = FsUtils;
     let apps_to_repair = resolve_apps(config, apps, false);
 
     for app_id in apps_to_repair {
         if let Some(app_config) = config.get_app(app_id) {
-            repair_app(config, app_config, force, verbose)?;
+            repair_app(config, app_config, &fs, force, verbose)?;
         }
     }
 
@@ -24,7 +25,13 @@ pub fn handle_repair(config: &Config, apps: &[String], force: bool, verbose: boo
 }
 
 /// 修复应用的所有损坏链接
-fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: bool) -> Result<()> {
+fn repair_app(
+    config: &Config,
+    app_config: &AppConfig,
+    fs: &(dyn FileSystem + 'static),
+    force: bool,
+    verbose: bool,
+) -> Result<()> {
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
@@ -40,12 +47,11 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
                     println!("  Repairing broken link: {}", source_display);
                 }
 
-                let fs = FsUtils;
                 fs.remove_if_exists(&source_path, verbose)?;
 
                 let (request, _, _) = build_link_request(app_config, source, workspace_path, true);
 
-                LinkOps::link(&request, verbose)?;
+                LinkOps::link_with_fs(&request, fs, verbose)?;
             }
             LinkStatus::TargetOnly => {
                 if force {
@@ -53,7 +59,6 @@ fn repair_app(config: &Config, app_config: &AppConfig, force: bool, verbose: boo
                         println!("  Creating link for orphaned target: {}", source_display);
                     }
 
-                    let fs = FsUtils;
                     fs.create_symlink(&target_path, &source_path)?;
                 } else {
                     println!(

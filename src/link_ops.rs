@@ -187,6 +187,9 @@ pub struct LinkRequest {
 
 impl LinkOps {
     /// 创建链接（便捷方法，使用默认的 FsUtils 实现）
+    ///
+    /// @deprecated 推荐使用 `link_with_fs()` 显式传入文件系统实现
+    #[deprecated(note = "Use `link_with_fs()` with explicit FileSystem dependency")]
     pub fn link(request: &LinkRequest, verbose: bool) -> Result<()> {
         let fs = FsUtils;
         Self::link_with_fs(request, &fs, verbose)
@@ -334,6 +337,9 @@ impl LinkOps {
     }
 
     /// 删除链接：移除源位置的链接，可选择将目标位置的文件移回源位置
+    ///
+    /// @deprecated 推荐使用 `unlink_with_fs()` 显式传入文件系统实现
+    #[deprecated(note = "Use `unlink_with_fs()` with explicit FileSystem dependency")]
     pub fn unlink(source: &Path, target: &Path, keep_files: bool, verbose: bool) -> Result<()> {
         let fs = FsUtils;
         Self::unlink_with_fs(source, target, keep_files, &fs, verbose)

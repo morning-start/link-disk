@@ -16,7 +16,7 @@
 //! - **结构体字段**（需要存储）：使用 `PathBuf`
 //!
 //! ### 公开方法签名示例
-//! ```rust
+//! ```rust,ignore
 //! // ✅ 正确：输入参数使用 &Path
 //! pub fn unlink(source: &Path, target: &Path, ...) -> Result<()>;
 //! pub fn check_status(source: &Path, target: &Path) -> LinkStatus;
@@ -32,6 +32,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
+use tracing::{info, debug};
 
 use crate::dir_ops::DirOps;
 use crate::fs_utils::{FileSystem, FsUtils};
@@ -271,13 +272,13 @@ impl LinkOps {
     }
 
     fn log_link_request(source: &Path, target: &Path, request: &LinkRequest) {
-        println!("Linking: {:?} -> {:?}", source, target);
-        println!("  Source exists: {}", source.exists());
-        println!("  Source is_symlink: {}", source.is_symlink());
-        println!("  Target exists: {}", target.exists());
-        println!("  Target is_symlink: {}", target.is_symlink());
-        println!("  Force: {}", request.force);
-        println!("  LinkType: {:?}", request.link_type);
+        info!("Linking: {:?} -> {:?}", source, target);
+        debug!("Source exists: {}", source.exists());
+        debug!("Source is_symlink: {}", source.is_symlink());
+        debug!("Target exists: {}", target.exists());
+        debug!("Target is_symlink: {}", target.is_symlink());
+        debug!("Force: {}", request.force);
+        debug!("LinkType: {:?}", request.link_type);
     }
 
     /// 检查并处理已存在的符号链接
@@ -388,10 +389,9 @@ impl LinkOps {
     }
 
     /// 删除链接（支持依赖注入版本）
-    pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
-        if verbose {
-            println!("Unlinking: {:?} -> {:?}", source, target);
-        }
+    pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem, _verbose: bool) -> Result<()> {
+        info!("Unlinking: {:?} -> {:?}", source, target);
+        debug!("Keep files: {}", keep_files);
 
         if source.is_symlink() {
             fs.remove_if_exists(source, false)?;
@@ -405,10 +405,7 @@ impl LinkOps {
             DirOps::move_back(target, source, fs)?;
         }
 
-        if verbose {
-            println!("Successfully unlinked: {:?} -> {:?}", source, target);
-        }
-
+        info!("Successfully unlinked: {:?} -> {:?}", source, target);
         Ok(())
     }
 

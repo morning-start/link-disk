@@ -21,18 +21,34 @@ use anyhow::Result;
 use clap::Parser;
 use cli::{Cli, Commands};
 use config::Config;
+use tracing_subscriber::EnvFilter;
 
 /// 程序入口点，捕获并处理所有错误
 fn main() {
-    if let Err(e) = run() {
+    let cli = Cli::parse();
+    setup_logging(cli.verbose);
+    
+    if let Err(e) = run(cli) {
         eprintln!("Error: {}", e);
         std::process::exit(1);
     }
 }
 
+/// 初始化日志系统
+fn setup_logging(verbose: bool) {
+    let filter = if verbose {
+        EnvFilter::new("link_disk=debug")
+    } else {
+        EnvFilter::new("link_disk=info")
+    };
+
+    tracing_subscriber::fmt()
+        .with_env_filter(filter)
+        .init();
+}
+
 /// 主运行函数：解析命令行参数并调度到对应的命令处理器
-fn run() -> Result<()> {
-    let cli = Cli::parse();
+fn run(cli: Cli) -> Result<()> {
 
     match &cli.command {
         Commands::Init { path, force } => {

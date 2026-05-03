@@ -314,16 +314,16 @@ impl LinkOps {
 
         // 步骤2-3: 处理源/目标存在性 + 移动文件或准备目录
         if source.exists() {
-            let should_continue = Self::handle_on_exists(source, target, request.on_exists, fs, verbose)?;
-            if !should_continue { return Ok(()); }
-
-            fs.ensure_parent_exists(target)?;
-            fs.move_dir_cross_filesystem(source, target)?;
+            let should_move = Self::handle_on_exists(source, target, request.on_exists, fs, verbose)?;
+            if should_move {
+                fs.ensure_parent_exists(target)?;
+                fs.move_dir_cross_filesystem(source, target)?;
+            }
         } else {
             Self::prepare_target_for_link(target, fs, verbose)?;
         }
 
-        // 步骤4: 创建链接
+        // 步骤4: 创建链接（始终执行）
         Self::create_link(source, target, request.link_type, fs, verbose)
     }
 
@@ -375,6 +375,8 @@ impl LinkOps {
     ///
     /// 通过 OnExistsStrategy trait 实现开放封闭原则，
     /// 添加新策略无需修改此方法。
+    ///
+    /// 返回: 是否需要将源文件移动到目标位置
     fn handle_on_exists(
         source: &Path,
         target: &Path,

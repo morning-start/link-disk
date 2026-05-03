@@ -5,7 +5,6 @@
 pub mod fs_utils;
 pub mod path_resolver;
 pub mod link_status;
-pub mod dir_ops;
 pub mod link_ops;
 pub mod config;
 pub mod common;

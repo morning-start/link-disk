@@ -10,7 +10,6 @@ mod cli;
 mod commands;
 mod common;
 mod config;
-mod dir_ops;
 mod fs_utils;
 mod link_ops;
 mod link_status;

@@ -142,41 +142,6 @@ fn test_path_resolver_expand_localappdata() {
 }
 
 #[test]
-fn test_dir_ops_merge_dirs() {
-    let (_temp, source, target) = setup_test_env_with_source();
-    std::fs::create_dir_all(&target).unwrap();
-
-    std::fs::write(source.join("file1.txt"), "content1").unwrap();
-    std::fs::create_dir_all(source.join("subdir")).unwrap();
-    std::fs::write(source.join("subdir").join("file2.txt"), "content2").unwrap();
-
-    let fs = FsUtils;
-    link_disk::dir_ops::DirOps::merge_dirs(&source, &target, &fs).unwrap();
-
-    assert!(!source.exists());
-    assert!(target.join("file1.txt").exists());
-    assert!(target.join("subdir").join("file2.txt").exists());
-    assert_eq!(std::fs::read_to_string(target.join("file1.txt")).unwrap(), "content1");
-    assert_eq!(std::fs::read_to_string(target.join("subdir").join("file2.txt")).unwrap(), "content2");
-}
-
-#[test]
-fn test_dir_ops_merge_dirs_skip_existing() {
-    let (_temp, source, target) = setup_test_env_with_source();
-    std::fs::create_dir_all(&target).unwrap();
-
-    std::fs::write(source.join("file1.txt"), "source_content").unwrap();
-    std::fs::write(target.join("file1.txt"), "target_content").unwrap();
-
-    let fs = FsUtils;
-    link_disk::dir_ops::DirOps::merge_dirs(&source, &target, &fs).unwrap();
-
-    assert!(!source.exists());
-    assert!(target.join("file1.txt").exists());
-    assert_eq!(std::fs::read_to_string(target.join("file1.txt")).unwrap(), "target_content");
-}
-
-#[test]
 fn test_config_workspace() {
     use link_disk::config::Config;
     use std::collections::HashMap;

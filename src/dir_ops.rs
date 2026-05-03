@@ -7,6 +7,7 @@
 use anyhow::{Context, Result};
 use std::collections::VecDeque;
 use std::path::Path;
+use tracing::info;
 
 use crate::fs_utils::FileSystem;
 
@@ -25,11 +26,12 @@ impl DirOps {
     /// - `source`: 源目录路径
     /// - `target`: 目标目录路径
     /// - `fs`: 文件系统操作接口
-    /// - `verbose`: 是否输出详细日志
-    pub fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
+    pub fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<()> {
         if !source.is_dir() || !target.is_dir() {
             anyhow::bail!("Merge requires both paths to be directories");
         }
+
+        info!("Merging directories: {:?} -> {:?}", source, target);
 
         let mut queue = VecDeque::new();
         queue.push_back((source.to_path_buf(), target.to_path_buf()));
@@ -52,13 +54,11 @@ impl DirOps {
                 } else if !dst_path.exists() {
                     std::fs::copy(&src_path, &dst_path)
                         .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
-                } else if verbose {
-                    println!("Skipping existing file: {:?}", dst_path);
                 }
             }
         }
 
-        fs.remove_if_exists(source, verbose)?;
+        fs.remove_if_exists(source)?;
 
         Ok(())
     }
@@ -81,7 +81,7 @@ impl DirOps {
 
         if source.is_dir() {
             fs.copy_dir_recursive(source, target)?;
-            fs.remove_if_exists(source, false)?;
+            fs.remove_if_exists(source)?;
         } else {
             fs.rename(source, target)?;
         }

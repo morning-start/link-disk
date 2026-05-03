@@ -47,7 +47,7 @@ fn repair_app(
                     println!("  Repairing broken link: {}", source_display);
                 }
 
-                fs.remove_if_exists(&source_path, verbose)?;
+                fs.remove_if_exists(&source_path)?;
 
                 let (request, _, _) = build_link_request(app_config, source, workspace_path, true);
 

@@ -238,7 +238,7 @@ impl OnExistsStrategy for ReplaceStrategy {
         if verbose {
             info!("Removing existing target: {:?}", target);
         }
-        fs.remove_if_exists(target, verbose)?;
+        fs.remove_if_exists(target)?;
         Ok(OnExistsAction::ContinueWithMove)
     }
 }
@@ -251,7 +251,7 @@ impl OnExistsStrategy for MergeStrategy {
         if verbose {
             info!("Merging directories: {:?} -> {:?}", source, target);
         }
-        DirOps::merge_dirs(source, target, fs, verbose)?;
+        DirOps::merge_dirs(source, target, fs)?;
         Ok(OnExistsAction::ContinueWithoutMove)
     }
 }
@@ -264,7 +264,7 @@ impl OnExistsStrategy for OverwriteStrategy {
         if verbose {
             info!("Removing source for overwrite: {:?}", source);
         }
-        fs.remove_if_exists(source, verbose)?;
+        fs.remove_if_exists(source)?;
         Ok(OnExistsAction::ContinueWithMove)
     }
 }
@@ -351,7 +351,7 @@ impl LinkOps {
             if verbose {
                 info!("Force: removing existing symlink: {:?}", source);
             }
-            return fs.remove_if_exists(source, false);
+            return fs.remove_if_exists(source);
         }
 
         if let Some(target_path) = fs.read_link(source) {
@@ -451,7 +451,7 @@ impl LinkOps {
         debug!("Keep files: {}", keep_files);
 
         if source.is_symlink() {
-            fs.remove_if_exists(source, false)?;
+            fs.remove_if_exists(source)?;
 
             if !keep_files && target.exists() {
                 DirOps::move_back(target, source, fs)?;

@@ -23,7 +23,7 @@ fn test_symlink_directory_creation() {
 
     let fs = FsUtils;
     fs.ensure_parent_exists(&target).unwrap();
-    fs.remove_if_exists(&target, false).unwrap();
+    fs.remove_if_exists(&target).unwrap();
     fs.create_symlink(&source, &target).unwrap();
 
     assert!(target.is_symlink());
@@ -52,11 +52,11 @@ fn test_symlink_removal() {
 
     let fs = FsUtils;
     fs.ensure_parent_exists(&target).unwrap();
-    fs.remove_if_exists(&target, false).unwrap();
+    fs.remove_if_exists(&target).unwrap();
     fs.create_symlink(&source, &target).unwrap();
     assert!(target.is_symlink());
 
-    fs.remove_if_exists(&target, false).unwrap();
+    fs.remove_if_exists(&target).unwrap();
     assert!(!target.exists());
 }
 
@@ -110,7 +110,7 @@ fn test_link_status_linked() {
     std::fs::create_dir_all(&target).unwrap();
 
     let fs = FsUtils;
-    fs.remove_if_exists(&source, false).unwrap();
+    fs.remove_if_exists(&source).unwrap();
     fs.create_symlink(&target, &source).unwrap();
 
     let status = link_disk::link_status::LinkStatusChecker::check(&source, &target);
@@ -151,7 +151,7 @@ fn test_dir_ops_merge_dirs() {
     std::fs::write(source.join("subdir").join("file2.txt"), "content2").unwrap();
 
     let fs = FsUtils;
-    link_disk::dir_ops::DirOps::merge_dirs(&source, &target, &fs, false).unwrap();
+    link_disk::dir_ops::DirOps::merge_dirs(&source, &target, &fs).unwrap();
 
     assert!(!source.exists());
     assert!(target.join("file1.txt").exists());
@@ -169,7 +169,7 @@ fn test_dir_ops_merge_dirs_skip_existing() {
     std::fs::write(target.join("file1.txt"), "target_content").unwrap();
 
     let fs = FsUtils;
-    link_disk::dir_ops::DirOps::merge_dirs(&source, &target, &fs, false).unwrap();
+    link_disk::dir_ops::DirOps::merge_dirs(&source, &target, &fs).unwrap();
 
     assert!(!source.exists());
     assert!(target.join("file1.txt").exists());

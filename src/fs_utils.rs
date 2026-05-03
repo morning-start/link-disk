@@ -20,6 +20,7 @@
 
 use anyhow::{Context, Result};
 use std::path::Path;
+use tracing::{debug, info};
 
 /// 只读查询操作 trait（ISP: 接口隔离原则）
 ///
@@ -51,7 +52,7 @@ pub trait FsWriter {
     fn ensure_parent_exists(&self, path: &Path) -> Result<()>;
 
     /// 安全删除文件、目录或符号链接
-    fn remove_if_exists(&self, path: &Path, verbose: bool) -> Result<()>;
+    fn remove_if_exists(&self, path: &Path) -> Result<()>;
 
     /// 重命名文件或目录
     fn rename(&self, src: &Path, dst: &Path) -> Result<()>;
@@ -73,6 +74,9 @@ pub trait FsLinker {
 /// 组合了所有细粒度 trait，方便不需要精细控制的场景使用。
 /// 推荐新功能优先使用子 trait 以实现更好的接口隔离。
 pub trait FileSystem: FsReader + FsCopier + FsWriter + FsLinker {}
+
+// 自动实现 FileSystem trait 给所有满足条件的类型
+impl<T: FsReader + FsCopier + FsWriter + FsLinker> FileSystem for T {}
 
 /// 文件系统操作工具类（默认实现）
 pub struct FsUtils;
@@ -165,11 +169,9 @@ impl FsWriter for FsUtils {
         Ok(())
     }
 
-    fn remove_if_exists(&self, path: &Path, verbose: bool) -> Result<()> {
+    fn remove_if_exists(&self, path: &Path) -> Result<()> {
         if path.is_symlink() {
-            if verbose {
-                println!("Removing symlink: {:?}", path);
-            }
+            debug!("Removing symlink: {:?}", path);
             return Self::remove_symlink(path);
         }
 
@@ -178,15 +180,11 @@ impl FsWriter for FsUtils {
         }
 
         if path.is_dir() {
-            if verbose {
-                println!("Removing directory: {:?}", path);
-            }
+            info!("Removing directory: {:?}", path);
             std::fs::remove_dir_all(path)
                 .with_context(|| format!("Failed to remove directory: {:?}", path))?;
         } else {
-            if verbose {
-                println!("Removing file: {:?}", path);
-            }
+            debug!("Removing file: {:?}", path);
             std::fs::remove_file(path)
                 .with_context(|| format!("Failed to remove file: {:?}", path))?;
         }
@@ -210,7 +208,7 @@ impl FsLinker for FsUtils {
         }
 
         if link.exists() {
-            self.remove_if_exists(link, false)?;
+            self.remove_if_exists(link)?;
         }
 
         if target.is_dir() {
@@ -259,7 +257,3 @@ impl FsLinker for FsUtils {
         Ok(())
     }
 }
-
-// === FileSystem 组合 trait 标记实现（向后兼容）===
-
-impl FileSystem for FsUtils {}

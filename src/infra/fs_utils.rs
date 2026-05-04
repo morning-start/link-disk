@@ -118,6 +118,14 @@ impl FsReader for FsUtils {
 
 impl FsCopier for FsUtils {
     fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()> {
+        if !src.is_dir() {
+            anyhow::bail!(
+                "Source path is not a valid directory: {:?}. \n\
+                 Please check your config.toml 'source' path is correct.",
+                src
+            );
+        }
+
         if !dst.exists() {
             std::fs::create_dir_all(dst)
                 .with_context(|| format!("Failed to create directory: {:?}", dst))?;

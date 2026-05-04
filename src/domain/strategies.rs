@@ -134,20 +134,32 @@ impl OnExistsStrategy for MergeStrategy {
         if verbose {
             tracing::info!("Merging directories: {:?} -> {:?}", source, target);
         }
-        file_mover::merge_dirs(source, target, fs)?;
+        
+        file_mover::merge_dirs(source, target, fs).map_err(|e| {
+            anyhow::anyhow!(
+                "Merge strategy failed for {:?} -> {:?}. \n\
+                 This may be caused by:\n\
+                 - Source is not a valid directory\n\
+                 - Source directory is corrupted or inaccessible\n\
+                 Please check your config.toml 'on_exists' setting or fix the source path.\n\
+                 Original error: {}",
+                source, target, e
+            )
+        })?;
+        
         Ok(OnExistsAction::ContinueWithoutMove)
     }
 }
 
-/// Overwrite 策略：删除源文件后继续移动
+/// Overwrite 策略：删除目标后继续移动源到目标位置
 struct OverwriteStrategy;
 
 impl OnExistsStrategy for OverwriteStrategy {
-    fn execute(&self, source: &Path, _target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
+    fn execute(&self, _source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            tracing::info!("Removing source for overwrite: {:?}", source);
+            tracing::info!("Removing existing target for overwrite: {:?}", target);
         }
-        fs.remove_if_exists(source)?;
+        fs.remove_if_exists(target)?;
         Ok(OnExistsAction::ContinueWithMove)
     }
 }

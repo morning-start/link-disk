@@ -95,11 +95,14 @@ impl LinkOps {
 
         Self::log_link_request(source, target, request);
 
-        // 步骤1: 符号链接检查与处理
-        Self::check_and_handle_symlink(source, target, request.force, fs, verbose)?;
+        // 步骤1: 符号链接检查与处理（如果已正确链接则直接返回）
+        if Self::check_and_handle_symlink(source, target, request.force, fs, verbose)? {
+            return Ok(());
+        }
 
         // 步骤2-3: 处理源/目标存在性 + 移动文件或准备目录
-        if source.exists() {
+        // 注意：符号链接已通过 check_and_handle_symlink 处理，此处排除
+        if source.exists() && !source.is_symlink() {
             let should_move = Self::handle_on_exists(source, target, request.on_exists, fs, verbose)?;
             if should_move {
                 fs.ensure_parent_exists(target)?;
@@ -109,7 +112,7 @@ impl LinkOps {
             Self::prepare_target_for_link(target, fs, verbose)?;
         }
 
-        // 步骤4: 创建链接（始终执行）
+        // 步骤4: 创建链接
         Self::create_link(source, target, request.link_type, fs, verbose)
     }
 
@@ -124,20 +127,24 @@ impl LinkOps {
     }
 
     /// 检查并处理已存在的符号链接
+    ///
+    /// 返回 `true` 表示已正确处理完成（应跳过后续步骤），
+    /// 返回 `false` 表示需要继续执行后续步骤。
     fn check_and_handle_symlink(
         source: &Path,
         target: &Path,
         force: bool,
         fs: &dyn FileSystem,
         verbose: bool,
-    ) -> Result<()> {
-        if !source.is_symlink() { return Ok(()); }
+    ) -> Result<bool> {
+        if !source.is_symlink() { return Ok(false); }
 
         if force {
             if verbose {
                 info!("Force: removing existing symlink: {:?}", source);
             }
-            return fs.remove_if_exists(source);
+            fs.remove_if_exists(source)?;
+            return Ok(false);
         }
 
         if let Some(target_path) = fs.read_link(source) {
@@ -147,7 +154,7 @@ impl LinkOps {
                 if verbose {
                     info!("Already linked: {:?} -> {:?}", source, target_path);
                 }
-                return Ok(());
+                return Ok(true);
             }
         }
 

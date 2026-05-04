@@ -190,16 +190,4 @@ impl OnExists {
             .map(|factory| factory())
             .unwrap_or_else(|| Box::new(SkipStrategy))
     }
-
-    #[deprecated(since = "1.2.0", note = "use FromStr trait instead")]
-    #[allow(dead_code)]
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "merge" | "Merge" | "MERGE" => OnExists::Merge,
-            "overwrite" | "Overwrite" | "OVERWRITE" => OnExists::Overwrite,
-            "replace" | "Replace" | "REPLACE" => OnExists::Replace,
-            _ => OnExists::Skip,
-        }
-    }
 }

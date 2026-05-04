@@ -2,8 +2,8 @@
 
 use anyhow::{Context, Result};
 
-use crate::domain::{resolve_apps, resolve_paths, LinkOps};
-use crate::infra::{Config, FsUtils, FileSystem, PathResolver, AppConfig};
+use crate::domain::LinkOps;
+use crate::infra::{resolve_apps, resolve_paths, Config, FsUtils, FileSystem, PathResolver, AppConfig};
 
 /// 处理 unlink 命令：删除链接并可选择移回文件
 pub fn handle_unlink(

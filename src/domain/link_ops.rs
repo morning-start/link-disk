@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use tracing::{info, debug};
 
-use crate::infra::{FileSystem, FsUtils};
+use crate::infra::FileSystem;
 use super::link_status::{LinkStatus, LinkStatusChecker};
 use super::strategies::{OnExists, OnExistsAction};
 
@@ -60,16 +60,6 @@ impl LinkType {
     pub fn from_str_lossy(s: &str) -> Self {
         <Self as FromStr>::from_str(s).unwrap_or(LinkType::Symlink)
     }
-
-    #[deprecated(since = "1.2.0", note = "use FromStr trait instead")]
-    #[allow(dead_code)]
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "hardlink" | "Hardlink" | "HARDLINK" => LinkType::Hardlink,
-            _ => LinkType::Symlink,
-        }
-    }
 }
 
 /// 链接请求结构体
@@ -90,16 +80,6 @@ pub struct LinkRequest {
 pub struct LinkOps;
 
 impl LinkOps {
-    /// 创建链接（便捷方法，使用默认的 FsUtils 实现）
-    ///
-    /// @deprecated 推荐使用 `link_with_fs()` 显式传入文件系统实现
-    #[deprecated(note = "Use `link_with_fs()` with explicit FileSystem dependency")]
-    #[allow(dead_code)]
-    pub fn link(request: &LinkRequest, verbose: bool) -> Result<()> {
-        let fs = FsUtils;
-        Self::link_with_fs(request, &fs, verbose)
-    }
-
     /// 创建链接：将源路径的内容转移到目标路径，然后在源位置创建链接指向目标
     ///
     /// 支持通过 FileSystem trait 注入不同的文件系统实现，便于测试。
@@ -244,16 +224,6 @@ impl LinkOps {
     }
 
     /// 删除链接：移除源位置的链接，可选择将目标位置的文件移回源位置
-    ///
-    /// @deprecated 推荐使用 `unlink_with_fs()` 显式传入文件系统实现
-    #[deprecated(note = "Use `unlink_with_fs()` with explicit FileSystem dependency")]
-    #[allow(dead_code)]
-    pub fn unlink(source: &Path, target: &Path, keep_files: bool, _verbose: bool) -> Result<()> {
-        let fs = FsUtils;
-        Self::unlink_with_fs(source, target, keep_files, &fs)
-    }
-
-    /// 删除链接（支持依赖注入版本）
     pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem) -> Result<()> {
         info!("Unlinking: {:?} -> {:?}", source, target);
         debug!("Keep files: {}", keep_files);

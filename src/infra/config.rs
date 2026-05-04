@@ -25,6 +25,10 @@ pub mod constants {
 }
 
 /// 策略常量（用于配置验证）
+///
+/// 这些常量与 domain::strategy_constants 定义相同的值，
+/// 由 infra 层自行定义，避免跨层依赖。
+/// 如有变更，请同步更新 domain/strategies.rs 中的常量。
 pub mod strategy_constants {
     /// 跳过策略
     pub const SKIP: &str = "skip";

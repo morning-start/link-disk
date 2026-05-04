@@ -2,8 +2,8 @@
 
 use anyhow::Result;
 
-use crate::domain::{resolve_apps, build_link_request, LinkOps, LinkStatus};
-use crate::infra::{FsUtils, FileSystem, PathResolver, Workspace, Config, AppConfig};
+use crate::domain::{LinkOps, LinkStatus};
+use crate::infra::{resolve_apps, build_link_request, FsUtils, FileSystem, PathResolver, Workspace, Config, AppConfig};
 
 /// 处理 repair 命令：修复损坏的链接
 pub fn handle_repair(config: &Config, apps: &[String], force: bool, verbose: bool) -> Result<()> {

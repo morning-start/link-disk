@@ -1,6 +1,6 @@
 //! 列表命令处理
 
-use crate::config::{AppConfig, Config};
+use crate::infra::{AppConfig, Config};
 
 /// 处理 list 命令：列出应用的链接配置
 pub fn handle_list(config: &Config, app: &Option<String>) {

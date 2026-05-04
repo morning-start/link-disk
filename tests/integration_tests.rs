@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use tempfile::TempDir;
-use link_disk::fs_utils::{FsWriter, FsLinker, FsUtils};
+use link_disk::infra::{FsUtils, FsWriter, FsLinker};
 
 fn setup_test_env_with_source() -> (TempDir, PathBuf, PathBuf) {
     let temp = TempDir::new().unwrap();
@@ -80,16 +80,16 @@ fn test_link_status_none() {
     let source = temp.path().join("nonexistent_src");
     let target = temp.path().join("nonexistent_tgt");
 
-    let status = link_disk::link_status::LinkStatusChecker::check(&source, &target);
-    assert_eq!(status, link_disk::link_status::LinkStatus::None);
+    let status = link_disk::domain::LinkStatusChecker::check(&source, &target);
+    assert_eq!(status, link_disk::domain::LinkStatus::None);
 }
 
 #[test]
 fn test_link_status_source_only() {
     let (_temp, source, target) = setup_test_env_with_source();
 
-    let status = link_disk::link_status::LinkStatusChecker::check(&source, &target);
-    assert_eq!(status, link_disk::link_status::LinkStatus::SourceOnly);
+    let status = link_disk::domain::LinkStatusChecker::check(&source, &target);
+    assert_eq!(status, link_disk::domain::LinkStatus::SourceOnly);
 }
 
 #[test]
@@ -97,8 +97,8 @@ fn test_link_status_target_only() {
     let (_temp, source, target) = setup_test_env_empty();
     std::fs::create_dir_all(&target).unwrap();
 
-    let status = link_disk::link_status::LinkStatusChecker::check(&source, &target);
-    assert_eq!(status, link_disk::link_status::LinkStatus::TargetOnly);
+    let status = link_disk::domain::LinkStatusChecker::check(&source, &target);
+    assert_eq!(status, link_disk::domain::LinkStatus::TargetOnly);
 }
 
 #[test]
@@ -113,13 +113,13 @@ fn test_link_status_linked() {
     fs.remove_if_exists(&source).unwrap();
     fs.create_symlink(&target, &source).unwrap();
 
-    let status = link_disk::link_status::LinkStatusChecker::check(&source, &target);
-    assert_eq!(status, link_disk::link_status::LinkStatus::Linked);
+    let status = link_disk::domain::LinkStatusChecker::check(&source, &target);
+    assert_eq!(status, link_disk::domain::LinkStatus::Linked);
 }
 
 #[test]
 fn test_path_resolver_expand_home() {
-    let result = link_disk::path_resolver::PathResolver::expand_home("~/test");
+    let result = link_disk::infra::PathResolver::expand_home("~/test");
     let result_str = result.to_string_lossy();
     assert!(!result_str.contains("~"));
     assert!(result_str.contains("Users") || result_str.contains("home"));
@@ -127,7 +127,7 @@ fn test_path_resolver_expand_home() {
 
 #[test]
 fn test_path_resolver_expand_appdata() {
-    let result = link_disk::path_resolver::PathResolver::expand("<appdata>/test");
+    let result = link_disk::infra::PathResolver::expand("<appdata>/test");
     assert!(!result.contains("<appdata>"));
     assert!(result.contains("AppData"));
     assert!(result.ends_with("/test") || result.ends_with("\\test"));
@@ -135,7 +135,7 @@ fn test_path_resolver_expand_appdata() {
 
 #[test]
 fn test_path_resolver_expand_localappdata() {
-    let result = link_disk::path_resolver::PathResolver::expand("<localappdata>/test");
+    let result = link_disk::infra::PathResolver::expand("<localappdata>/test");
     assert!(!result.contains("<localappdata>"));
     assert!(result.contains("AppData"));
     assert!(result.ends_with("/test") || result.ends_with("\\test"));
@@ -143,11 +143,11 @@ fn test_path_resolver_expand_localappdata() {
 
 #[test]
 fn test_config_workspace() {
-    use link_disk::config::Config;
+    use link_disk::infra::{Config, ConfigWorkspace};
     use std::collections::HashMap;
 
     let config = Config {
-        workspace: link_disk::config::Workspace {
+        workspace: ConfigWorkspace {
             path: PathBuf::from("D:/test-workspace"),
         },
         apps: HashMap::new(),

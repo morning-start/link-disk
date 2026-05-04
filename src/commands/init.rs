@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 use std::path::PathBuf;
 
-use crate::workspace::Workspace;
+use crate::infra::Workspace;
 
 /// 处理 init 命令：初始化工作区
 pub fn handle_init(path: &Option<String>, force: bool, verbose: bool) -> Result<()> {

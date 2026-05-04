@@ -6,7 +6,7 @@
 //! - 目标已存在时的处理策略
 //! - 链接状态检查
 //!
-//! 目录操作（合并、回移）已移至 [`crate::dir_ops::DirOps`]。
+//! 目录操作（合并、回移）已合并为本模块的私有方法。
 //!
 //! ## API 参数约定
 //!
@@ -36,10 +36,10 @@ use std::str::FromStr;
 use std::sync::LazyLock;
 use tracing::{info, debug};
 
-use crate::fs_utils::{FileSystem, FsUtils};
+use crate::infra::{FileSystem, FsUtils};
 
 // 重新导出 LinkStatus 和 LinkStatusChecker，保持向后兼容
-pub use crate::link_status::{LinkStatus, LinkStatusChecker};
+pub use crate::domain::link_status::{LinkStatus, LinkStatusChecker};
 
 /// 策略名称常量模块
 ///

@@ -8,18 +8,15 @@
 
 mod cli;
 mod commands;
-mod common;
-mod config;
-mod fs_utils;
-mod link_ops;
-mod link_status;
-mod path_resolver;
-mod workspace;
+mod domain;
+mod infra;
 
 use anyhow::{Context, Result};
 use clap::Parser;
 use cli::{Cli, Commands};
-use config::Config;
+use infra::Config;
+use infra::PathResolver;
+use infra::Workspace;
 use tracing_subscriber::EnvFilter;
 
 /// 程序入口点，捕获并处理所有错误
@@ -100,8 +97,8 @@ fn run(cli: Cli) -> Result<()> {
 /// 加载配置文件
 fn load_config(config_path: &Option<String>) -> Result<Config> {
     let path = match config_path {
-        Some(p) => path_resolver::PathResolver::expand_home(p),
-        None => workspace::Workspace::config_path()?,
+        Some(p) => PathResolver::expand_home(p),
+        None => Workspace::config_path()?,
     };
 
     if !path.exists() {

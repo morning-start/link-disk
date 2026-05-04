@@ -4,10 +4,9 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::config::{AppConfig, Source};
-use crate::link_ops::{LinkRequest, LinkType, OnExists};
-use crate::path_resolver::PathResolver;
-use crate::workspace::Workspace;
+use crate::infra::{AppConfig, Source};
+use crate::domain::{LinkRequest, LinkType, OnExists};
+use crate::infra::{PathResolver, Workspace};
 
 /// 从 Source 配置构建 LinkRequest
 ///

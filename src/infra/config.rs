@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::link_ops::strategies as on_exists_strategies;
+use crate::domain::strategies as on_exists_strategies;
 
 /// 配置常量模块
 pub mod constants {
@@ -19,7 +19,7 @@ pub mod constants {
     /// 硬链接类型
     pub const HARDLINK: &str = "hardlink";
     /// 默认跳过策略
-    pub const DEFAULT_ON_EXISTS: &str = crate::link_ops::strategies::SKIP;
+    pub const DEFAULT_ON_EXISTS: &str = crate::domain::strategies::SKIP;
     /// 默认链接类型
     pub const DEFAULT_LINK_TYPE: &str = SYMLINK;
     /// 默认源类型

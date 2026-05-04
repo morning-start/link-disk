@@ -16,7 +16,7 @@ pub struct Workspace;
 
 impl Workspace {
     /// 默认配置模板（从外部文件加载）
-    const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../config-default.toml");
+    const DEFAULT_CONFIG_TEMPLATE: &str = include_str!("../../config-default.toml");
 
     /// 初始化工作区：创建工作区目录和默认配置文件
     ///

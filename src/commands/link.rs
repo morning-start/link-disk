@@ -2,13 +2,8 @@
 
 use anyhow::{Context, Result};
 
-use crate::common::app_resolver::resolve_apps;
-use crate::common::request_builder::build_link_request;
-use crate::config::{AppConfig, Config};
-use crate::fs_utils::{FsUtils, FileSystem, FsWriter};
-use crate::link_ops::LinkOps;
-use crate::path_resolver::PathResolver;
-use crate::workspace::Workspace;
+use crate::domain::{build_link_request, resolve_apps, LinkOps};
+use crate::infra::{FsUtils, FileSystem, FsWriter, PathResolver, Workspace, Config, AppConfig};
 use spinners::{Spinner, Spinners};
 
 /// 处理 link 命令：为应用创建链接

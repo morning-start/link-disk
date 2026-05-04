@@ -2,7 +2,7 @@
 //!
 //! 提供统一的应用列表解析逻辑，避免在多个命令中重复。
 
-use crate::config::Config;
+use crate::infra::Config;
 
 /// 解析需要处理的应用列表
 ///

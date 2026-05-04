@@ -1,8 +1,8 @@
 //! 状态检查命令处理
 
-use crate::config::{AppConfig, Config};
-use crate::link_ops::{LinkOps, LinkStatus};
-use crate::path_resolver::PathResolver;
+use crate::infra::{AppConfig, Config};
+use crate::domain::{LinkOps, LinkStatus};
+use crate::infra::PathResolver;
 
 /// 处理 status 命令：检查应用链接状态
 pub fn handle_status(config: &Config, apps: &[String]) {

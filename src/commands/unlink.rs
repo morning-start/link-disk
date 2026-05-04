@@ -2,11 +2,8 @@
 
 use anyhow::{Context, Result};
 
-use crate::common::app_resolver::resolve_apps;
-use crate::common::request_builder::resolve_paths;
-use crate::config::Config;
-use crate::fs_utils::{FsUtils, FileSystem};
-use crate::link_ops::LinkOps;
+use crate::domain::{resolve_apps, resolve_paths, LinkOps};
+use crate::infra::{Config, FsUtils, FileSystem, PathResolver, AppConfig};
 
 /// 处理 unlink 命令：删除链接并可选择移回文件
 pub fn handle_unlink(
@@ -36,7 +33,7 @@ pub fn handle_unlink(
 fn unlink_app(
     config: &Config,
     app_id: &str,
-    app_config: &crate::config::AppConfig,
+    app_config: &AppConfig,
     fs: &dyn FileSystem,
     keep_files: bool,
     verbose: bool,
@@ -45,7 +42,7 @@ fn unlink_app(
 
     for source in &app_config.sources {
         let (source_path, target_path) = resolve_paths(app_config, source, workspace_path);
-        let source_display = crate::path_resolver::PathResolver::expand(&source.source);
+        let source_display = PathResolver::expand(&source.source);
 
         if verbose {
             println!("  Source: {:?}", source_path);

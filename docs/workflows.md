@@ -12,6 +12,10 @@
 
 当用户执行 `link-disk link` 命令时，系统会将应用的配置和数据文件夹从原始位置转移到工作区，并在原位置创建符号链接。
 
+### 核心设计思路
+
+所有情况的最终目标都是转化为 **"source 不存在 + target 存在"** 的标准状态，然后直接执行 `create_link(source, target)`。
+
 ### 流程图
 
 ```mermaid
@@ -23,64 +27,82 @@ flowchart TD
     GET_APP --> EXPAND_PATHS
     GET_ALL_APPS --> EXPAND_PATHS[展开路径占位符]
     EXPAND_PATHS --> BUILD_REQUEST[构建链接请求]
-    BUILD_REQUEST --> LINK_OPS[执行链接操作]
-    LINK_OPS --> CHECK_SYMLINK{source 是符号链接?}
+    BUILD_REQUEST --> CHECK_SYMLINK{source 是符号链接?}
+    
     CHECK_SYMLINK -->|是| CHECK_FORCE{force=true?}
-    CHECK_SYMLINK -->|否| CHECK_SOURCE_EXISTS
     CHECK_FORCE -->|是| REMOVE_SYMLINK[删除现有符号链接]
-    REMOVE_SYMLINK --> CHECK_SOURCE_EXISTS
+    REMOVE_SYMLINK --> PREPARE_STANDARD_STATE
     CHECK_FORCE -->|否| CHECK_SYMLINK_TARGET{目标是否正确?}
     CHECK_SYMLINK_TARGET -->|是| ALREADY_LINKED[返回: 已链接]
+    ALREADY_LINKED --> END1([结束])
     CHECK_SYMLINK_TARGET -->|否| ERROR_WRONG_TARGET[报错: 指向错误目标]
-    CHECK_SOURCE_EXISTS -->|存在| CHECK_TARGET_EXISTS
-    CHECK_SOURCE_EXISTS -->|不存在| ENSURE_PARENT[确保父目录存在]
-    CHECK_TARGET_EXISTS -->|存在| ON_EXISTS_STRATEGY{on_exists 策略}
-    CHECK_TARGET_EXISTS -->|不存在| MOVE_SOURCE[移动 source 到 target]
-    ON_EXISTS_STRATEGY -->|Skip| SKIP[跳过 - 保持现状]
-    ON_EXISTS_STRATEGY -->|Replace| REMOVE_TARGET[删除 target]
-    ON_EXISTS_STRATEGY -->|Merge| MERGE_DIRS[合并目录]
-    ON_EXISTS_STRATEGY -->|Overwrite| REMOVE_SOURCE[删除 source]
-    REMOVE_TARGET --> MOVE_SOURCE
-    MERGE_DIRS --> REMOVE_SOURCE_DIR[删除 source 目录]
-    REMOVE_SOURCE_DIR --> CREATE_LINK
-    REMOVE_SOURCE --> END([结束])
-    ENSURE_PARENT --> CREATE_TARGET_DIR{target 不存在?}
-    CREATE_TARGET_DIR -->|是| CREATE_DIR[创建目标目录]
-    CREATE_TARGET_DIR -->|否| CREATE_LINK
-    CREATE_DIR --> CREATE_LINK
-    MOVE_SOURCE --> CREATE_LINK{链接类型?}
-    CREATE_LINK -->|Symlink| CREATE_SYMLINK[创建符号链接]
-    CREATE_LINK -->|Hardlink| CREATE_HARDLINK[创建硬链接]
-    CREATE_SYMLINK --> END_SUCCESS([结束])
-    CREATE_HARDLINK --> END_SUCCESS
-    SKIP --> END_SKIP([结束])
-    ALREADY_LINKED --> END_ALREADY([结束])
+    ERROR_WRONG_TARGET --> END2([失败])
+    
+    CHECK_SYMLINK -->|否| PREPARE_STANDARD_STATE[步骤2: 预处理<br/>转化为标准状态]
+    
+    PREPARE_STANDARD_STATE --> CHECK_SOURCE{source 存在?}
+    
+    CHECK_SOURCE -->|是| CHECK_TARGET{target 存在?}
+    CHECK_TARGET -->|否| MOVE_SOURCE[移动 source → target]
+    MOVE_SOURCE --> STANDARD_STATE[标准状态达成]
+    
+    CHECK_TARGET -->|是| ON_EXISTS_STRATEGY{on_exists 策略}
+    ON_EXISTS_STRATEGY -->|Skip| SKIP_ERROR[❌ 报错: 目标已存在]
+    SKIP_ERROR --> END3([失败])
+    ON_EXISTS_STRATEGY -->|Replace| DELETE_TARGET[删除 target]
+    DELETE_TARGET --> MOVE_SOURCE2[移动 source → target]
+    MOVE_SOURCE2 --> STANDARD_STATE
+    ON_EXISTS_STRATEGY -->|Merge| MERGE_DIRS[合并 source 到 target<br/>删除 source]
+    MERGE_DIRS --> STANDARD_STATE
+    ON_EXISTS_STRATEGY -->|Overwrite| DELETE_SOURCE[删除 source]
+    DELETE_SOURCE --> STANDARD_STATE
+    
+    CHECK_SOURCE -->|否| ENSURE_TARGET{target 存在?}
+    ENSURE_TARGET -->|否| CREATE_TARGET[创建 target 目录]
+    CREATE_TARGET --> STANDARD_STATE
+    ENSURE_TARGET -->|是| STANDARD_STATE[已是标准状态]
+    
+    STANDARD_STATE --> CREATE_LINK[步骤3: 创建链接]
+    CREATE_LINK --> LINK_TYPE{链接类型?}
+    LINK_TYPE -->|Symlink| CREATE_SYMLINK[创建符号链接]
+    LINK_TYPE -->|Hardlink| CREATE_HARDLINK[创建硬链接]
+    CREATE_SYMLINK --> END4([✅ 成功])
+    CREATE_HARDLINK --> END4
 ```
 
-**图 1.1: link 命令主流程**
+**图 1.1: link 命令主流程（基于"转化为标准状态"设计模式）**
 
 ### 流程说明
 
-1. **配置加载阶段**: 系统首先加载 TOML 配置文件，获取工作区路径和应用配置
-2. **应用解析阶段**: 根据用户输入确定要处理的应用列表（指定应用或所有应用）
-3. **路径展开阶段**: 将配置文件中的占位符（如 `<home>`、`<localappdata>`）替换为实际路径
-4. **链接请求构建**: 根据配置创建链接请求对象，包含源路径、目标路径、链接类型、冲突策略和 force 选项
-5. **符号链接检查**: 检查源位置是否已经是符号链接
-   - 如果是且 `force` 为 true：删除现有链接，继续后续处理
-   - 如果是且 `force` 为 false：检查链接目标是否正确，正确则跳过，错误则报错
-6. **源文件检查**: 判断源文件/目录是否存在
-   - **存在**: 继续检查目标位置
-   - **不存在**: 确保目标目录存在，如果不存在则创建，然后直接创建链接（不移动文件）
-7. **目标位置检查**: 根据 `on_exists` 策略处理冲突
-   - **Skip**: 跳过操作，保持现状
-   - **Replace**: 删除目标位置的文件，然后移动源文件到目标
-   - **Merge**: 合并两个目录的内容（删除源目录），跳过 move，直接创建链接
-   - **Overwrite**: 删除源文件，跳过 move，直接创建链接
-8. **执行移动和链接**:
-   - 如果源存在（Replace 或无冲突）：将源文件移动到目标位置
-   - 如果源已被策略删除（Merge/Overwrite）：跳过移动
-   - 如果源不存在：仅创建目标目录结构
-   - 根据链接类型创建符号链接或硬链接
+#### 步骤 1: 检查符号链接
+
+检查源位置是否已经是符号链接：
+
+- **是 + 指向正确** → 返回"已链接"，结束流程
+- **是 + 指向错误 + force=true** → 删除旧链接，继续预处理
+- **是 + 指向错误 + force=false** → 报错退出
+- **不是** → 继续预处理
+
+#### 步骤 2: 预处理（转化为标准状态）
+
+通过各种手段将当前状态转化为 **"source 不存在 + target 存在"**：
+
+| 当前状态 | 操作 | 转化结果 |
+|---------|------|---------|
+| source 存在 + target 不存在 | 移动 source → target | source 不存在 + target 存在 |
+| source 存在 + target 存在 + Replace | 删除 target → 移动 source → target | source 不存在 + target 存在 |
+| source 存在 + target 存在 + Merge | 合并 source 到 target → 删除 source | source 不存在 + target 存在 |
+| source 存在 + target 存在 + Overwrite | 删除 source | source 不存在 + target 存在 |
+| source 存在 + target 存在 + Skip | 报错退出 | ❌ 失败 |
+| source 不存在 + target 不存在 | 创建 target 目录 | source 不存在 + target 存在 |
+| source 不存在 + target 存在 | 无需操作（已是标准状态） | source 不存在 + target 存在 |
+
+#### 步骤 3: 创建链接
+
+在 source 位置创建指向 target 的链接：
+
+- **Symlink**: 创建符号链接 `source -> target`
+- **Hardlink**: 创建硬链接 `source -> target`
 
 ---
 
@@ -135,18 +157,22 @@ flowchart TD
 flowchart LR
     subgraph ONEXISTS[on_exists 策略]
         direction TB
-        SKIP[Skip<br/>跳过]
+        SKIP[Skip<br/>报错跳过]
         REPLACE[Replace<br/>删除目标]
         MERGE[Merge<br/>合并目录]
         OVERWRITE[Overwrite<br/>删除源]
     end
+    
+    ONEXISTS --> RESULT[转化结果]
+    SKIP --> FAIL[❌ 中断流程]
+    REPLACE --> SUCCESS[✅ 标准状态]
+    MERGE --> SUCCESS
+    OVERWRITE --> SUCCESS
 
-    ONEXISTS --> RESULT[结果]
-
-    style SKIP fill:#dcfce7
-    style REPLACE fill:#fef3c7
+    style SKIP fill:#fee2e2
+    style REPLACE fill:#dcfce7
     style MERGE fill:#dbeafe
-    style OVERWRITE fill:#fee2e2
+    style OVERWRITE fill:#fef3c7
 ```
 
 **图 3.1: on_exists 策略概览**
@@ -156,36 +182,37 @@ flowchart LR
 ```mermaid
 flowchart TD
     START([开始: source 和 target 都存在]) --> CHECK_STRATEGY{on_exists 策略}
-    CHECK_STRATEGY -->|Skip| RETURN_SKIP[返回: 跳过操作]
+    
+    CHECK_STRATEGY -->|Skip| RETURN_SKIP[返回错误: 跳过操作]
+    RETURN_SKIP --> END1([❌ 失败])
+    
     CHECK_STRATEGY -->|Replace| DELETE_TARGET[删除 target 目录]
+    DELETE_TARGET --> MOVE_SOURCE[移动 source → target]
+    MOVE_SOURCE --> END2([✅ 标准状态达成])
+    
     CHECK_STRATEGY -->|Merge| MERGE_LOOP{遍历 source 目录}
-    CHECK_STRATEGY -->|Overwrite| DELETE_SOURCE[删除 source 目录]
-    DELETE_TARGET --> CONTINUE[继续移动 source]
-    DELETE_SOURCE --> CONTINUE2[跳过移动，直接创建链接]
     MERGE_LOOP -->|子目录| MERGE_LOOP
     MERGE_LOOP -->|文件不存在于 target| COPY_FILE[复制文件到 target]
     MERGE_LOOP -->|文件已存在| SKIP_FILE[跳过文件]
     MERGE_LOOP -->|遍历完成| DELETE_SOURCE_DIR[删除 source 目录]
     COPY_FILE --> MERGE_LOOP
     SKIP_FILE --> MERGE_LOOP
-    DELETE_SOURCE_DIR --> CREATE_LINK2[跳过移动，直接创建链接]
-    CONTINUE --> CREATE_LINK1[创建链接]
-    CONTINUE2 --> CREATE_LINK1
-    CREATE_LINK2 --> END([结束])
-    CREATE_LINK1 --> END
-    RETURN_SKIP --> END
+    DELETE_SOURCE_DIR --> END3([✅ 标准状态达成])
+    
+    CHECK_STRATEGY -->|Overwrite| DELETE_SOURCE[删除 source 目录]
+    DELETE_SOURCE --> END4([✅ 标准状态达成])
 ```
 
 **图 3.2: on_exists 策略详细处理流程**
 
 ### 策略说明
 
-| 策略 | 行为 | 适用场景 |
-|------|------|---------|
-| **Skip** | 不执行任何操作，保持现状 | 不确定是否要覆盖，希望手动处理 |
-| **Replace** | 删除目标位置的整个目录，然后将源文件移动过去，创建链接 | 确保使用最新配置，不需要保留旧配置 |
-| **Merge** | 遍历源目录，逐个复制文件到目标目录（不覆盖已存在的文件），删除源目录，直接创建链接 | 希望合并新旧配置，保留两边的数据 |
-| **Overwrite** | 删除源目录，跳过移动，直接创建链接 | 希望保留目标位置的配置，丢弃源配置 |
+| 策略 | 预处理操作 | 转化结果 | 后续步骤 | 适用场景 |
+|------|-----------|---------|---------|---------|
+| **Skip** | 不执行任何操作 | 保持现状 | ❌ 报错中断 | 保留 target 的现有数据，避免覆盖 |
+| **Replace** | 删除 target → 移动 source → target | source 不存在 + target 存在 | create_link | 确认 target 数据不再需要，完全替换 |
+| **Merge** | 合并 source 到 target 后删除 source | source 不存在 + target 存在 | create_link | 以 target 为准，source 补充缺失内容 |
+| **Overwrite** | 删除 source | source 不存在 + target 存在 | create_link | 保留 target 数据，丢弃 source 旧数据 |
 
 ---
 
@@ -341,7 +368,7 @@ stateDiagram-v2
 | 场景 | 触发命令 | 核心流程 | 预期结果 |
 |------|---------|---------|---------|
 | **首次配置应用** | `link-disk init` | 初始化工作区 → 生成配置文件 | 创建 `~/.link-disk` 目录和 `config.toml` |
-| **转移应用数据** | `link-disk link <app>` | 加载配置 → 展开路径 → 检查冲突 → 移动文件 → 创建链接 | 源位置变为符号链接，目标位置保存实际文件 |
+| **转移应用数据** | `link-disk link <app>` | 预处理转化为标准状态 → 创建链接 | 源位置变为符号链接，目标位置保存实际文件 |
 | **批量转移** | `link-disk link --all` | 遍历所有应用 → 逐个执行 link 流程 | 所有配置的应用完成数据转移 |
 | **恢复应用数据** | `link-disk unlink <app>` | 删除链接 → 移回文件（可选） | 源位置恢复为实际文件 |
 | **修复断链** | `link-disk repair <app>` | 检查状态 → 删除断链 → 重建链接 | 所有链接恢复正常状态 |
@@ -462,4 +489,4 @@ link_type = "symlink"  # 影响链接创建方式
 | `--force` | link/unlink/repair | link: 强制删除已有软链接后重新链接; unlink: 确认执行; repair: 为孤立目标创建链接 |
 | `--dry-run` | link | 模拟执行，不实际操作 |
 | `--keep-files` | unlink | 保留目标位置的文件 |
-| `--all` | link/status/unlink/repair | 处理所有已配置的应用 |
+| `--all` | link/status/unlink/repair | 处理所有已配置的应用

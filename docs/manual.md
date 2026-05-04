@@ -130,25 +130,31 @@ link-disk link [应用名...] [选项]
 
 **link 逻辑说明：**
 
-| 情况                         | 处理方式                                                      |
-| ---------------------------- | ------------------------------------------------------------- |
-| source 存在，target 不存在   | 移动 source → target，创建链接                                |
-| source 存在，target 存在     | 根据 on_exists 策略处理冲突，然后移动（如需要）并创建链接     |
-| source 不存在，target 不存在 | 创建 target 目录，创建链接                                    |
-| source 是损坏的符号链接      | 如果 force=true 则删除并重建，否则报错                        |
-| source 已是正确链接          | 跳过，显示 "Already linked"                                   |
-| source 已是错误链接          | 报错或使用 --force                                            |
+核心思路：所有情况的最终目标都是转化为 **"source 不存在 + target 存在"** 的标准状态，然后直接创建链接。
+
+| 初始状态 | 预处理操作 | 转化结果 | 最后步骤 |
+|----------|-----------|---------|---------|
+| source 是符号链接（指向正确） | 检测到已正确链接 | 直接返回成功 | 无需操作 |
+| source 是符号链接（指向错误）+ force=true | 删除旧符号链接 | source 不存在 | 继续处理 |
+| source 是符号链接（指向错误）+ force=false | 无法自动处理 | ❌ 报错退出 | - |
+| source 存在，target 不存在 | 移动 source → target | source 不存在 + target 存在 | create_link |
+| source 存在，target 存在 + skip | 不执行任何操作 | ❌ 跳过，不创建链接 | - |
+| source 存在，target 存在 + replace | 删除 target，移动 source → target | source 不存在 + target 存在 | create_link |
+| source 存在，target 存在 + merge | 合并 source 到 target 后删除 source | source 不存在 + target 存在 | create_link |
+| source 存在，target 存在 + overwrite | 删除 source | source 不存在 + target 存在 | create_link |
+| source 不存在，target 不存在 | 创建 target 目录 | source 不存在 + target 存在 | create_link |
+| source 不存在，target 存在 | 无需预处理（已是标准状态） | source 不存在 + target 存在 | create_link |
 
 **冲突处理方案（on_exists）：**
 
-当 target 已存在文件或文件夹时的处理策略：
+同样遵循"转化为标准状态"的思路：
 
-| 策略       | 说明                                           | 适用场景                               |
-| ---------- | ---------------------------------------------- | -------------------------------------- |
-| `skip`     | 跳过该 source，不做任何操作（默认）            | 保留 target 的现有数据，避免覆盖       |
-| `merge`    | 合并源到目标后删除源目录，继续创建链接         | 以 target 为准，以 source 补充         |
-| `overwrite`| 删除源后继续创建链接                          | 确认 source 数据不再需要，保留目标数据 |
-| `replace`  | 删除目标，移动源到目标位置，创建链接           | 确认 target 数据不再需要，可以完全替换 |
+| 策略 | 预处理操作 | 转化结果 | 后续步骤 | 适用场景 |
+|------|-----------|---------|---------|---------|
+| `skip` | 不执行任何操作 | 保持现状 | ❌ 跳过，不创建链接 | 保留 target 的现有数据，避免覆盖 |
+| `replace` | 删除 target，移动 source → target | source 不存在 + target 存在 | create_link | 确认 target 数据不再需要，完全替换 |
+| `merge` | 合并 source 到 target 后删除 source | source 不存在 + target 存在 | create_link | 以 target 为准，source 补充缺失内容 |
+| `overwrite` | 删除 source | source 不存在 + target 存在 | create_link | 保留 target 数据，丢弃 source 旧数据 |
 
 **示例：**
 

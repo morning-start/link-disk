@@ -107,7 +107,7 @@ struct SkipStrategy;
 impl OnExistsStrategy for SkipStrategy {
     fn execute(&self, _source: &Path, target: &Path, _fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            tracing::info!("Target already exists, skipping: {:?}", target);
+            tracing::info!("Target already exists, skipping: {}", target.display());
         }
         Ok(OnExistsAction::Skip)
     }
@@ -119,7 +119,7 @@ struct ReplaceStrategy;
 impl OnExistsStrategy for ReplaceStrategy {
     fn execute(&self, _source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            tracing::info!("Removing existing target: {:?}", target);
+            tracing::info!("Removing existing target: {}", target.display());
         }
         fs.remove_if_exists(target)?;
         Ok(OnExistsAction::ContinueWithMove)
@@ -132,7 +132,7 @@ struct MergeStrategy;
 impl OnExistsStrategy for MergeStrategy {
     fn execute(&self, source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            tracing::info!("Merging directories: {:?} -> {:?}", source, target);
+            tracing::info!("Merging directories: {} -> {}", source.display(), target.display());
         }
         
         file_mover::merge_dirs(source, target, fs).map_err(|e| {
@@ -157,7 +157,7 @@ struct OverwriteStrategy;
 impl OnExistsStrategy for OverwriteStrategy {
     fn execute(&self, source: &Path, _target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            tracing::info!("Removing existing source for overwrite: {:?}", source);
+            tracing::info!("Removing existing source for overwrite: {}", source.display());
         }
         fs.remove_if_exists(source)?;
         Ok(OnExistsAction::ContinueWithoutMove)

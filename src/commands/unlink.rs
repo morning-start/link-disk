@@ -45,8 +45,8 @@ fn unlink_app(
         let source_display = PathResolver::expand(&source.source);
 
         if verbose {
-            println!("  Source: {:?}", source_path);
-            println!("  Target: {:?}", target_path);
+            println!("  Source: {}", source_path.display());
+            println!("  Target: {}", target_path.display());
         }
 
         LinkOps::unlink_with_fs(&source_path, &target_path, keep_files, fs)

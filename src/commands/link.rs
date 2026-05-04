@@ -20,7 +20,7 @@ pub fn handle_link(
     
     if !workspace_path.exists() {
         if verbose {
-            println!("Creating workspace directory: {:?}", workspace_path);
+            println!("Creating workspace directory: {}", workspace_path.display());
         }
         fs.ensure_parent_exists(workspace_path)?;
     }
@@ -63,14 +63,14 @@ fn link_app(
         let target_path = Workspace::resolve_target(workspace_path, &target_relative);
 
         if verbose {
-            println!("  Source: {:?}", source_path_str);
-            println!("  Target: {:?}", target_path);
+            println!("  Source: {}", source_path_str);
+            println!("  Target: {}", target_path.display());
         }
 
         if dry_run {
             println!(
-                "  [DRY RUN] Would link {:?} -> {:?}",
-                source_path_str, target_path
+                "  [DRY RUN] Would link {} -> {}",
+                source_path_str, target_path.display()
             );
             continue;
         }

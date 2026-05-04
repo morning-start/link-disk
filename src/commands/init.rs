@@ -19,13 +19,13 @@ pub fn handle_init(path: &Option<String>, force: bool, verbose: bool) -> Result<
     };
 
     if verbose {
-        println!("Initializing workspace at: {:?}", workspace_path);
+        println!("Initializing workspace at: {}", workspace_path.display());
     }
 
     Workspace::init(&workspace_path).context("Failed to initialize workspace")?;
 
-    println!("Workspace initialized at: {:?}", workspace_path);
-    println!("Config file: {:?}", Workspace::config_path()?);
+    println!("Workspace initialized at: {}", workspace_path.display());
+    println!("Config file: {}", Workspace::config_path()?.display());
 
     Ok(())
 }

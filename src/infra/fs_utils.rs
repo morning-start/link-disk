@@ -20,7 +20,7 @@
 
 use anyhow::{Context, Result};
 use std::path::Path;
-use tracing::{debug, info};
+use tracing::debug;
 
 /// 只读查询操作 trait（ISP: 接口隔离原则）
 ///
@@ -179,7 +179,7 @@ impl FsWriter for FsUtils {
 
     fn remove_if_exists(&self, path: &Path) -> Result<()> {
         if path.is_symlink() {
-            debug!("Removing symlink: {:?}", path);
+            debug!("Removing symlink: {}", path.display());
             return Self::remove_symlink(path);
         }
 
@@ -188,11 +188,11 @@ impl FsWriter for FsUtils {
         }
 
         if path.is_dir() {
-            info!("Removing directory: {:?}", path);
+            debug!("Removing directory: {}", path.display());
             std::fs::remove_dir_all(path)
                 .with_context(|| format!("Failed to remove directory: {:?}", path))?;
         } else {
-            debug!("Removing file: {:?}", path);
+            debug!("Removing file: {}", path.display());
             std::fs::remove_file(path)
                 .with_context(|| format!("Failed to remove file: {:?}", path))?;
         }

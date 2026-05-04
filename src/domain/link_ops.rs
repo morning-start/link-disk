@@ -193,7 +193,7 @@ impl LinkOps {
     }
 
     fn log_link_request(source: &Path, target: &Path, request: &LinkRequest) {
-        info!("Linking: {:?} -> {:?}", source, target);
+        debug!("Linking: {} -> {}", source.display(), target.display());
         debug!("Source exists: {}", source.exists());
         debug!("Source is_symlink: {}", source.is_symlink());
         debug!("Target exists: {}", target.exists());
@@ -217,7 +217,7 @@ impl LinkOps {
 
         if force {
             if verbose {
-                info!("Force: removing existing symlink: {:?}", source);
+                info!("Force: removing existing symlink: {}", source.display());
             }
             fs.remove_if_exists(source)?;
             return Ok(false);
@@ -228,7 +228,7 @@ impl LinkOps {
             let normalized_target = fs.normalize_path(target);
             if normalized_linked == normalized_target {
                 if verbose {
-                    info!("Already linked: {:?} -> {:?}", source, target_path);
+                    info!("Already linked: {} -> {}", source.display(), target_path.display());
                 }
                 return Ok(true);
             }
@@ -251,20 +251,20 @@ impl LinkOps {
         match link_type {
             LinkType::Symlink => {
                 if verbose {
-                    info!("Creating symlink: {:?} -> {:?}", source, target);
+                    info!("Creating symlink: {} -> {}", source.display(), target.display());
                 }
                 fs.create_symlink(target, source)?;
             }
             LinkType::Hardlink => {
                 if verbose {
-                    info!("Creating hardlink: {:?} -> {:?}", source, target);
+                    info!("Creating hardlink: {} -> {}", source.display(), target.display());
                 }
                 fs.hard_link(target, source)?;
             }
         }
 
         if verbose {
-            info!("Successfully linked: {:?} -> {:?}", source, target);
+            info!("Successfully linked: {} -> {}", source.display(), target.display());
         }
 
         Ok(())
@@ -272,7 +272,7 @@ impl LinkOps {
 
     /// 删除链接：移除源位置的链接，可选择将目标位置的文件移回源位置
     pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem) -> Result<()> {
-        info!("Unlinking: {:?} -> {:?}", source, target);
+        debug!("Unlinking: {} -> {}", source.display(), target.display());
         debug!("Keep files: {}", keep_files);
 
         if source.is_symlink() {
@@ -287,7 +287,7 @@ impl LinkOps {
             Self::move_back(target, source, fs)?;
         }
 
-        info!("Successfully unlinked: {:?} -> {:?}", source, target);
+        debug!("Successfully unlinked: {} -> {}", source.display(), target.display());
         Ok(())
     }
 

@@ -1,0 +1,10 @@
+{
+    "files.exclude": {
+        ".joycode": true,
+        ".kilocode": true,
+        ".codeflicker": true,
+        ".codebuddy": true,
+        ".claude": true,
+        ".agents": true
+    }
+}

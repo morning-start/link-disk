@@ -10,8 +10,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use serde::Deserialize;
 
-use crate::domain::strategies as on_exists_strategies;
-
 /// 配置常量模块
 pub mod constants {
     /// 符号链接类型
@@ -19,11 +17,23 @@ pub mod constants {
     /// 硬链接类型
     pub const HARDLINK: &str = "hardlink";
     /// 默认跳过策略
-    pub const DEFAULT_ON_EXISTS: &str = crate::domain::strategies::SKIP;
+    pub const DEFAULT_ON_EXISTS: &str = "skip";
     /// 默认链接类型
     pub const DEFAULT_LINK_TYPE: &str = SYMLINK;
     /// 默认源类型
     pub const DEFAULT_SOURCE_TYPE: &str = "dir";
+}
+
+/// 策略常量（用于配置验证）
+pub mod strategy_constants {
+    /// 跳过策略
+    pub const SKIP: &str = "skip";
+    /// 替换策略
+    pub const REPLACE: &str = "replace";
+    /// 合并策略
+    pub const MERGE: &str = "merge";
+    /// 覆盖策略
+    pub const OVERWRITE: &str = "overwrite";
 }
 
 /// 顶层配置结构体
@@ -112,14 +122,25 @@ impl Config {
             }
 
             match app_config.on_exists_strategy() {
-                on_exists_strategies::SKIP | on_exists_strategies::REPLACE | on_exists_strategies::MERGE | on_exists_strategies::OVERWRITE => {}
-                other => anyhow::bail!("App '{}' has invalid on_exists strategy: '{}'", app_id, other),
+                strategy_constants::SKIP
+                | strategy_constants::REPLACE
+                | strategy_constants::MERGE
+                | strategy_constants::OVERWRITE => {}
+                other => anyhow::bail!(
+                    "App '{}' has invalid on_exists strategy: '{}'",
+                    app_id,
+                    other
+                ),
             }
 
             for source in &app_config.sources {
                 match source.link_type.as_str() {
                     constants::SYMLINK | constants::HARDLINK => {}
-                    other => anyhow::bail!("App '{}' has invalid link_type: '{}'", app_id, other),
+                    other => anyhow::bail!(
+                        "App '{}' has invalid link_type: '{}'",
+                        app_id,
+                        other
+                    ),
                 }
 
                 if source.source.trim().is_empty() {

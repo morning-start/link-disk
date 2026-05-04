@@ -3,10 +3,7 @@
 //! 提供链接的核心功能，包括：
 //! - 符号链接和硬链接的创建
 //! - 链接的删除（unlink）
-//! - 目标已存在时的处理策略
 //! - 链接状态检查
-//!
-//! 目录操作（合并、回移）已合并为本模块的私有方法。
 //!
 //! ## API 参数约定
 //!
@@ -29,67 +26,13 @@
 //! ```
 
 use anyhow::{Context, Result};
-use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::LazyLock;
 use tracing::{info, debug};
 
 use crate::infra::{FileSystem, FsUtils};
-
-// 重新导出 LinkStatus 和 LinkStatusChecker，保持向后兼容
-pub use crate::domain::link_status::{LinkStatus, LinkStatusChecker};
-
-/// 策略名称常量模块
-///
-/// 定义所有支持的策略名称常量，拼写错误可在编译时捕获。
-pub mod strategies {
-    /// 跳过策略
-    pub const SKIP: &str = "skip";
-    /// 替换策略
-    pub const REPLACE: &str = "replace";
-    /// 合并策略
-    pub const MERGE: &str = "merge";
-    /// 覆盖策略
-    pub const OVERWRITE: &str = "overwrite";
-}
-
-/// 策略工厂类型：返回 Box<dyn OnExistsStrategy>
-///
-/// 使用函数指针（fn）而非 trait object（dyn Fn），
-/// 使类型自动实现 Send + Sync，可用于 LazyLock。
-type StrategyFactory = fn() -> Box<dyn OnExistsStrategy>;
-
-/// OnExists 策略注册表
-///
-/// 静态不可变映射，在首次访问时初始化。
-/// 键为策略名称，值为策略工厂函数。
-static STRATEGY_REGISTRY: LazyLock<HashMap<&'static str, StrategyFactory>> = LazyLock::new(|| {
-    let mut reg: HashMap<&'static str, StrategyFactory> = HashMap::new();
-    reg.insert(strategies::SKIP, skip_strategy_factory);
-    reg.insert(strategies::REPLACE, replace_strategy_factory);
-    reg.insert(strategies::MERGE, merge_strategy_factory);
-    reg.insert(strategies::OVERWRITE, overwrite_strategy_factory);
-    reg
-});
-
-// 策略工厂函数（用于注册表，满足 fn 类型要求）
-fn skip_strategy_factory() -> Box<dyn OnExistsStrategy> {
-    Box::new(SkipStrategy)
-}
-fn replace_strategy_factory() -> Box<dyn OnExistsStrategy> {
-    Box::new(ReplaceStrategy)
-}
-fn merge_strategy_factory() -> Box<dyn OnExistsStrategy> {
-    Box::new(MergeStrategy)
-}
-fn overwrite_strategy_factory() -> Box<dyn OnExistsStrategy> {
-    Box::new(OverwriteStrategy)
-}
-
-/// 链接操作工具类
-pub struct LinkOps;
+use super::link_status::{LinkStatus, LinkStatusChecker};
+use super::strategies::{OnExists, OnExistsAction};
 
 /// 链接类型枚举
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -129,146 +72,6 @@ impl LinkType {
     }
 }
 
-/// 目标已存在时的处理策略枚举
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OnExists {
-    /// 跳过，不执行任何操作
-    Skip,
-    /// 合并目录内容
-    Merge,
-    /// 覆盖源文件后重新创建链接
-    Overwrite,
-    /// 删除目标后移动源到目标位置
-    Replace,
-}
-
-impl FromStr for OnExists {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "skip" => Ok(OnExists::Skip),
-            "replace" => Ok(OnExists::Replace),
-            "merge" => Ok(OnExists::Merge),
-            "overwrite" => Ok(OnExists::Overwrite),
-            _ => Err(format!("Unknown on_exists strategy: {}", s)),
-        }
-    }
-}
-
-impl OnExists {
-    /// 宽松解析：解析失败时默认为 Skip
-    pub fn from_str_lossy(s: &str) -> Self {
-        <Self as FromStr>::from_str(s).unwrap_or(OnExists::Skip)
-    }
-
-    /// 获取对应的策略实现（OCP: 开放封闭原则）
-    ///
-    /// 从策略注册表中获取对应的工厂函数并创建策略实例。
-    /// 符合开放封闭原则：添加新策略只需在注册表中注册。
-    pub fn strategy(&self) -> Box<dyn OnExistsStrategy> {
-        let key = match self {
-            Self::Skip => strategies::SKIP,
-            Self::Replace => strategies::REPLACE,
-            Self::Merge => strategies::MERGE,
-            Self::Overwrite => strategies::OVERWRITE,
-        };
-        STRATEGY_REGISTRY
-            .get(key)
-            .map(|factory| factory())
-            .unwrap_or_else(|| Box::new(SkipStrategy))
-    }
-
-    #[deprecated(since = "1.2.0", note = "use FromStr trait instead")]
-    #[allow(dead_code)]
-    #[allow(clippy::should_implement_trait)]
-    pub fn from_str(s: &str) -> Self {
-        match s {
-            "merge" | "Merge" | "MERGE" => OnExists::Merge,
-            "overwrite" | "Overwrite" | "OVERWRITE" => OnExists::Overwrite,
-            "replace" | "Replace" | "REPLACE" => OnExists::Replace,
-            _ => OnExists::Skip,
-        }
-    }
-}
-
-/// 策略执行结果：指示主流程如何继续
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum OnExistsAction {
-    /// 跳过后续操作
-    Skip,
-    /// 继续移动源文件到目标
-    ContinueWithMove,
-    /// 继续但不移动文件（如 Merge 后直接创建链接）
-    ContinueWithoutMove,
-}
-
-/// on_exists 策略 trait（OCP: 开放封闭原则）
-///
-/// 实现此 trait 可以定义新的目标已存在处理策略，
-/// 无需修改 LinkOps::link() 主流程。
-pub trait OnExistsStrategy {
-    /// 执行策略逻辑，返回行动指令
-    fn execute(
-        &self,
-        source: &Path,
-        target: &Path,
-        fs: &dyn FileSystem,
-        verbose: bool,
-    ) -> Result<OnExistsAction>;
-}
-
-/// Skip 策略：跳过，不执行任何操作
-struct SkipStrategy;
-
-impl OnExistsStrategy for SkipStrategy {
-    fn execute(&self, _source: &Path, target: &Path, _fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
-        if verbose {
-            info!("Target already exists, skipping: {:?}", target);
-        }
-        Ok(OnExistsAction::Skip)
-    }
-}
-
-/// Replace 策略：删除目标后继续移动
-struct ReplaceStrategy;
-
-impl OnExistsStrategy for ReplaceStrategy {
-    fn execute(&self, _source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
-        if verbose {
-            info!("Removing existing target: {:?}", target);
-        }
-        fs.remove_if_exists(target)?;
-        Ok(OnExistsAction::ContinueWithMove)
-    }
-}
-
-/// Merge 策略：合并目录内容后不移动
-struct MergeStrategy;
-
-impl OnExistsStrategy for MergeStrategy {
-    fn execute(&self, source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
-        if verbose {
-            info!("Merging directories: {:?} -> {:?}", source, target);
-        }
-        LinkOps::merge_dirs(source, target, fs)?;
-        Ok(OnExistsAction::ContinueWithoutMove)
-    }
-}
-
-/// Overwrite 策略：删除源文件后继续移动
-struct OverwriteStrategy;
-
-impl OnExistsStrategy for OverwriteStrategy {
-    fn execute(&self, source: &Path, _target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
-        if verbose {
-            info!("Removing source for overwrite: {:?}", source);
-        }
-        fs.remove_if_exists(source)?;
-        Ok(OnExistsAction::ContinueWithMove)
-    }
-}
-
 /// 链接请求结构体
 pub struct LinkRequest {
     /// 源路径（原位置）
@@ -282,6 +85,9 @@ pub struct LinkRequest {
     /// 是否强制覆盖已存在的符号链接
     pub force: bool,
 }
+
+/// 链接操作工具类
+pub struct LinkOps;
 
 impl LinkOps {
     /// 创建链接（便捷方法，使用默认的 FsUtils 实现）
@@ -468,78 +274,9 @@ impl LinkOps {
         Ok(())
     }
 
-    /// 合并两个目录的内容（源目录合并到目标目录）
-    ///
-    /// 将源目录中的所有文件和子目录迭代合并到目标目录，
-    /// 合并完成后删除源目录。
-    ///
-    /// 使用 BFS 迭代实现，避免深目录导致的栈溢出。
-    ///
-    /// # 参数
-    /// - `source`: 源目录路径
-    /// - `target`: 目标目录路径
-    /// - `fs`: 文件系统操作接口
-    fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<()> {
-        if !source.is_dir() || !target.is_dir() {
-            anyhow::bail!("Merge requires both paths to be directories");
-        }
-
-        info!("Merging directories: {:?} -> {:?}", source, target);
-
-        let mut queue = VecDeque::new();
-        queue.push_back((source.to_path_buf(), target.to_path_buf()));
-
-        while let Some((src_dir, dst_dir)) = queue.pop_front() {
-            if !dst_dir.exists() {
-                std::fs::create_dir_all(&dst_dir)
-                    .with_context(|| format!("Failed to create directory: {:?}", dst_dir))?;
-            }
-
-            for entry in std::fs::read_dir(&src_dir)
-                .with_context(|| format!("Failed to read directory: {:?}", src_dir))?
-            {
-                let entry = entry?;
-                let src_path = entry.path();
-                let dst_path = dst_dir.join(entry.file_name());
-
-                if src_path.is_dir() {
-                    queue.push_back((src_path, dst_path));
-                } else if !dst_path.exists() {
-                    std::fs::copy(&src_path, &dst_path)
-                        .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
-                }
-            }
-        }
-
-        fs.remove_if_exists(source)?;
-
-        Ok(())
-    }
-
-    /// 将目标位置的内容移回源位置
-    ///
-    /// 用于 unlink 操作中恢复文件到原始位置。
-    /// 如果目标是目录，则递归复制后删除；如果是文件，则直接重命名。
-    ///
-    /// # 参数
-    /// - `source`: 源位置（当前文件所在位置）
-    /// - `target`: 目标位置（要移动到的位置）
-    /// - `fs`: 文件系统操作接口
+    /// 将目标位置的内容移回源位置（委托给 file_mover 模块）
     fn move_back(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<()> {
-        if !source.exists() {
-            anyhow::bail!("Target path does not exist: {:?}", source);
-        }
-
-        fs.ensure_parent_exists(target)?;
-
-        if source.is_dir() {
-            fs.copy_dir_recursive(source, target)?;
-            fs.remove_if_exists(source)?;
-        } else {
-            fs.rename(source, target)?;
-        }
-
-        Ok(())
+        super::file_mover::move_back(source, target, fs)
     }
 
     /// 检查链接状态（委托给 LinkStatusChecker）

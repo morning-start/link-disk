@@ -7,8 +7,15 @@ mod fs_utils;
 mod path_resolver;
 mod workspace;
 
-pub use config::{Config, AppConfig, Source};
-pub use config::Workspace as ConfigWorkspace;
-pub use fs_utils::{FileSystem, FsUtils, FsWriter, FsLinker};
+#[allow(unused_imports)]
+pub use config::{Config, AppConfig, Source, Workspace as ConfigWorkspace};
+#[allow(unused_imports)]
+pub use config::constants as config_constants;
+#[allow(unused_imports)]
+pub use config::strategy_constants;
+#[allow(unused_imports)]
+pub use fs_utils::{FileSystem, FsUtils, FsReader, FsWriter, FsLinker, FsCopier};
+#[allow(unused_imports)]
 pub use path_resolver::PathResolver;
+#[allow(unused_imports)]
 pub use workspace::Workspace;

@@ -151,16 +151,16 @@ impl OnExistsStrategy for MergeStrategy {
     }
 }
 
-/// Overwrite 策略：删除目标后继续移动源到目标位置
+/// Overwrite 策略：删除源后不移动（源已被删除），直接创建链接
 struct OverwriteStrategy;
 
 impl OnExistsStrategy for OverwriteStrategy {
-    fn execute(&self, _source: &Path, target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
+    fn execute(&self, source: &Path, _target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            tracing::info!("Removing existing target for overwrite: {:?}", target);
+            tracing::info!("Removing existing source for overwrite: {:?}", source);
         }
-        fs.remove_if_exists(target)?;
-        Ok(OnExistsAction::ContinueWithMove)
+        fs.remove_if_exists(source)?;
+        Ok(OnExistsAction::ContinueWithoutMove)
     }
 }
 

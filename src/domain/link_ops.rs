@@ -82,38 +82,114 @@ pub struct LinkOps;
 impl LinkOps {
     /// 创建链接：将源路径的内容转移到目标路径，然后在源位置创建链接指向目标
     ///
-    /// 支持通过 FileSystem trait 注入不同的文件系统实现，便于测试。
+    /// # 核心设计思路
+    ///
+    /// 所有情况的最终目标都是转化为 **"source 不存在 + target 存在"** 的标准状态，
+    /// 然后直接执行 `create_link(source, target)`。
     ///
     /// # 流程
-    /// 1. 检查并处理已存在的符号链接（force 逻辑）
-    /// 2. 根据策略处理目标已存在的情况
-    /// 3. 移动源内容到目标（或准备目标目录结构）
-    /// 4. 在源位置创建指向目标的链接
+    /// 1. 检查符号链接：如果已正确链接则直接返回
+    /// 2. 预处理：通过各种手段转化为标准状态
+    ///    - source 存在 + target 不存在：移动 source → target
+    ///    - source 存在 + target 存在：根据 on_exists 策略处理
+    ///    - source 不存在 + target 不存在：创建 target 目录
+    ///    - source 不存在 + target 存在：已是标准状态，无需操作
+    /// 3. 创建链接：在 source 位置创建指向 target 的链接
     pub fn link_with_fs(request: &LinkRequest, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
         let source = &request.source;
         let target = &request.target;
 
         Self::log_link_request(source, target, request);
 
-        // 步骤1: 符号链接检查与处理（如果已正确链接则直接返回）
+        // 步骤1: 检查符号链接（如果已正确链接则直接返回）
         if Self::check_and_handle_symlink(source, target, request.force, fs, verbose)? {
             return Ok(());
         }
 
-        // 步骤2-3: 处理源/目标存在性 + 移动文件或准备目录
-        // 注意：符号链接已通过 check_and_handle_symlink 处理，此处排除
+        // 步骤2: 预处理，转化为标准状态（source 不存在 + target 存在）
+        Self::prepare_standard_state(source, target, request.on_exists, fs, verbose)?;
+
+        // 步骤3: 创建链接
+        Self::create_link(source, target, request.link_type, fs, verbose)
+    }
+
+    /// 预处理：将当前状态转化为标准状态（source 不存在 + target 存在）
+    ///
+    /// # 状态转化表
+    /// | 当前状态 | 操作 | 转化结果 |
+    /// |---------|------|---------|
+    /// | source 存在 + target 不存在 | 移动 source → target | source 不存在 + target 存在 |
+    /// | source 存在 + target 存在 + replace | 删除 target，移动 source → target | source 不存在 + target 存在 |
+    /// | source 存在 + target 存在 + merge | 合并 source 到 target 后删除 source | source 不存在 + target 存在 |
+    /// | source 存在 + target 存在 + overwrite | 删除 source | source 不存在 + target 存在 |
+    /// | source 存在 + target 存在 + skip | 抛出错误（跳过） | 不继续 |
+    /// | source 不存在 + target 不存在 | 创建 target 目录 | source 不存在 + target 存在 |
+    /// | source 不存在 + target 存在 | 无需操作（已是标准状态） | source 不存在 + target 存在 |
+    fn prepare_standard_state(
+        source: &Path,
+        target: &Path,
+        on_exists: OnExists,
+        fs: &dyn FileSystem,
+        verbose: bool,
+    ) -> Result<()> {
         if source.exists() && !source.is_symlink() {
-            let should_move = Self::handle_on_exists(source, target, request.on_exists, fs, verbose)?;
-            if should_move {
+            // source 存在：需要根据 target 是否存在进行不同处理
+            if !target.exists() {
+                // source 存在 + target 不存在：直接移动
+                if verbose {
+                    info!("Moving source to target (target doesn't exist)");
+                }
+                fs.ensure_parent_exists(target)?;
+                fs.move_dir_cross_filesystem(source, target)?;
+            } else {
+                // source 存在 + target 存在：执行 on_exists 策略
+                Self::apply_on_exists_strategy(source, target, on_exists, fs, verbose)?;
+            }
+        } else {
+            // source 不存在：只需确保 target 存在
+            if !target.exists() {
+                if verbose {
+                    info!("Creating target directory (source doesn't exist)");
+                }
+                std::fs::create_dir_all(target)
+                    .with_context(|| format!("Failed to create target directory: {:?}", target))?;
+            }
+        }
+        Ok(())
+    }
+
+    /// 应用 on_exists 策略处理 source 和 target 都存在的冲突
+    ///
+    /// # 策略行为
+    /// - Replace: 删除 target → 移动 source → target
+    /// - Merge: 合并 source 到 target → 删除 source
+    /// - Overwrite: 删除 source
+    /// - Skip: 返回错误，中断流程
+    fn apply_on_exists_strategy(
+        source: &Path,
+        target: &Path,
+        on_exists: OnExists,
+        fs: &dyn FileSystem,
+        verbose: bool,
+    ) -> Result<()> {
+        let strategy = on_exists.strategy();
+        match strategy.execute(source, target, fs, verbose)? {
+            OnExistsAction::Skip => {
+                anyhow::bail!(
+                    "Target already exists and on_exists strategy is 'skip'. \
+                     Use a different strategy (replace/merge/overwrite) or remove the target manually."
+                )
+            }
+            OnExistsAction::ContinueWithMove => {
+                // Replace 策略：target 已被删除，移动 source → target
                 fs.ensure_parent_exists(target)?;
                 fs.move_dir_cross_filesystem(source, target)?;
             }
-        } else {
-            Self::prepare_target_for_link(target, fs, verbose)?;
+            OnExistsAction::ContinueWithoutMove => {
+                // Merge/Overwrite 策略：source 已被删除或合并，无需移动
+            }
         }
-
-        // 步骤4: 创建链接
-        Self::create_link(source, target, request.link_type, fs, verbose)
+        Ok(())
     }
 
     fn log_link_request(source: &Path, target: &Path, request: &LinkRequest) {
@@ -162,42 +238,6 @@ impl LinkOps {
             "Source is already a symlink pointing to different target: {:?}",
             source
         )
-    }
-
-    /// 处理 on_exists 策略（使用策略模式）
-    ///
-    /// 通过 OnExistsStrategy trait 实现开放封闭原则，
-    /// 添加新策略无需修改此方法。
-    ///
-    /// 返回: 是否需要将源文件移动到目标位置
-    fn handle_on_exists(
-        source: &Path,
-        target: &Path,
-        on_exists: OnExists,
-        fs: &dyn FileSystem,
-        verbose: bool,
-    ) -> Result<bool> {
-        if !target.exists() { return Ok(true); }
-
-        let strategy = on_exists.strategy();
-        match strategy.execute(source, target, fs, verbose)? {
-            OnExistsAction::Skip => Ok(false),
-            OnExistsAction::ContinueWithMove => Ok(true),
-            OnExistsAction::ContinueWithoutMove => Ok(false),
-        }
-    }
-
-    /// 当源不存在时，准备目标目录结构用于创建链接
-    fn prepare_target_for_link(target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
-        if verbose {
-            info!("Source does not exist, creating target directory structure...");
-        }
-        fs.ensure_parent_exists(target)?;
-        if !target.exists() {
-            std::fs::create_dir_all(target)
-                .with_context(|| format!("Failed to create target directory: {:?}", target))?;
-        }
-        Ok(())
     }
 
     /// 在源位置创建指向目标的链接

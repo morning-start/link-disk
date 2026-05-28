@@ -9,8 +9,8 @@ mod workspace;
 mod request_builder;
 
 pub use config::{Config, AppConfig, Source};
-pub use fs_utils::{FileSystem, FsUtils, FsWriter};
-pub use path_resolver::PathResolver;
+pub use fs_utils::{detect_symlink_cycle, FileSystem, FsUtils, FsWriter};
+pub use path_resolver::{PathResolver, register_placeholder, is_known_placeholder};
 pub use workspace::Workspace;
 
 // 应用解析和请求构建函数（供 commands 层使用）

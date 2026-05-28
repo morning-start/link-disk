@@ -9,6 +9,9 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
+use tracing::warn;
+
+use super::path_resolver::{register_placeholder, is_known_placeholder};
 
 /// 配置常量模块
 pub mod constants {
@@ -60,6 +63,11 @@ pub struct Config {
     /// 应用配置映射表 (key: 应用ID, value: 应用配置)
     #[serde(default)]
     pub apps: std::collections::HashMap<String, AppConfig>,
+    /// 自定义占位符映射表
+    /// 键为占位符名（不含尖括号），值为实际路径
+    /// 例如: { "myapp": "C:/Program Files/MyApp" }
+    #[serde(default)]
+    pub custom_placeholders: std::collections::HashMap<String, String>,
 }
 
 /// 工作区配置
@@ -118,6 +126,50 @@ fn default_source_type() -> String {
     constants::DEFAULT_SOURCE_TYPE.to_string()
 }
 
+/// 检查配置文件权限是否安全
+///
+/// 在 Unix 上检查文件权限位（group/other 不应有读取权限）。
+/// 在 Windows 上检查配置文件是否位于用户主目录或 AppData 下。
+fn check_config_permissions(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let mode = metadata.permissions().mode();
+            if mode & 0o077 != 0 {
+                warn!(
+                    "Config file '{}' has permissive permissions ({:#o}). \
+                     Consider restricting access with: chmod 600 {}",
+                    path.display(),
+                    mode & 0o777,
+                    path.display()
+                );
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        if let Some(parent) = path.parent() {
+            let parent_str = parent.to_string_lossy().to_lowercase();
+            let in_home = dirs::home_dir()
+                .map(|h| parent_str.starts_with(&h.to_string_lossy().to_lowercase()))
+                .unwrap_or(false);
+            let in_appdata = dirs::data_dir()
+                .or_else(|| dirs::data_local_dir())
+                .map(|d| parent_str.starts_with(&d.to_string_lossy().to_lowercase()))
+                .unwrap_or(false);
+            if !in_home && !in_appdata {
+                warn!(
+                    "Config file '{}' is outside user home/AppData directory. \
+                     Ensure file permissions are restricted to your user account only.",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
 impl Config {
     /// 从指定路径加载配置文件
     pub fn load(path: &Path) -> Result<Self> {
@@ -126,7 +178,22 @@ impl Config {
 
         let config: Config = toml::from_str(&content).context("Failed to parse config file")?;
 
+        check_config_permissions(path);
+
+        config.register_custom_placeholders()?;
+
         Ok(config)
+    }
+
+    /// 注册自定义占位符到运行时注册表
+    fn register_custom_placeholders(&self) -> Result<()> {
+        for (name, value) in &self.custom_placeholders {
+            let key = format!("<{}>", name);
+            let path = value.clone();
+            register_placeholder(&key, Box::new(move || Some(path.clone())))
+                .map_err(|e| anyhow::anyhow!("Failed to register custom placeholder '{}': {}", key, e))?;
+        }
+        Ok(())
     }
 
     /// 校验配置有效性
@@ -213,7 +280,7 @@ impl AppConfig {
     }
 }
 
-/// 检查路径中的占位符是否都是已知的
+/// 检查路径中的占位符是否都是已知的（含运行时注册的自定义占位符）
 fn check_placeholders(path: &str) -> Result<()> {
     let mut start = 0;
     while let Some(open) = path[start..].find('<') {
@@ -221,7 +288,8 @@ fn check_placeholders(path: &str) -> Result<()> {
         if let Some(close) = path[abs_open..].find('>') {
             let abs_close = abs_open + close + 1;
             let candidate = &path[abs_open..abs_close];
-            let is_known = constants::KNOWN_PLACEHOLDERS.iter().any(|k| *k == candidate);
+            let is_known = constants::KNOWN_PLACEHOLDERS.iter().any(|k| *k == candidate)
+                || is_known_placeholder(candidate);
 
             if !is_known {
                 anyhow::bail!(
@@ -383,6 +451,7 @@ mod tests {
                 path: PathBuf::new(),
             },
             apps: HashMap::new(),
+            custom_placeholders: HashMap::new(),
         };
         assert!(config.validate().is_err());
     }
@@ -406,6 +475,7 @@ mod tests {
         let config = Config {
             workspace: Workspace { path: PathBuf::from("D:/ws") },
             apps,
+            custom_placeholders: std::collections::HashMap::new(),
         };
         assert!(config.validate().is_err());
     }
@@ -423,6 +493,7 @@ mod tests {
         let config = Config {
             workspace: Workspace { path: PathBuf::from("D:/ws") },
             apps,
+            custom_placeholders: std::collections::HashMap::new(),
         };
         assert!(config.validate().is_err());
     }
@@ -446,6 +517,7 @@ mod tests {
         let config = Config {
             workspace: Workspace { path: PathBuf::from("D:/ws") },
             apps,
+            custom_placeholders: std::collections::HashMap::new(),
         };
         assert!(config.validate().is_err());
     }

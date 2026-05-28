@@ -19,8 +19,111 @@
 //! 同时保留 [`FileSystem`] 组合 trait 以保持向后兼容。
 
 use anyhow::{Context, Result};
+use std::collections::HashSet;
 use std::path::Path;
 use tracing::debug;
+
+/// 符号链接循环检测的最大深度
+pub const MAX_SYMLINK_DEPTH: usize = 64;
+
+/// 检测路径是否存在符号链接循环
+///
+/// 通过追踪符号链接链，检测是否形成循环。
+/// 如果超过 `MAX_SYMLINK_DEPTH` 层，视为循环。
+///
+/// # 返回值
+/// - `None`: 无循环且路径正常
+/// - `Some(cycle_path)`: 发现循环，返回形成循环的路径
+pub fn detect_symlink_cycle(path: &Path) -> Option<std::path::PathBuf> {
+    let mut visited = HashSet::new();
+    let mut current = path.to_path_buf();
+
+    for _ in 0..MAX_SYMLINK_DEPTH {
+        if !current.is_symlink() {
+            return None;
+        }
+
+        // 使用 fs::read_link 获取原始目标，避免 canonicalize 的跨平台问题
+        let target = match std::fs::read_link(&current) {
+            Ok(t) => t,
+            Err(_) => return None,
+        };
+
+        // 解析为目标物理路径（非 canonicalize，避免 Windows 限制）
+        let resolved = if target.is_absolute() {
+            target
+        } else {
+            match current.parent() {
+                Some(parent) => parent.join(&target),
+                None => target,
+            }
+        };
+
+        // 用 resolved 路径（尽量规范化）检测访问过的路径
+        if !visited.insert(resolved.clone()) {
+            return Some(current);
+        }
+
+        current = resolved;
+    }
+
+    Some(current)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_detect_no_cycle_on_regular_path() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().join("realdir");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(detect_symlink_cycle(&dir).is_none());
+    }
+
+    #[test]
+    fn test_detect_no_cycle_on_valid_symlink() {
+        let temp = TempDir::new().unwrap();
+        let real = temp.path().join("real");
+        let link = temp.path().join("link");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::windows::fs::symlink_dir(&real, &link).unwrap();
+        assert!(detect_symlink_cycle(&link).is_none());
+    }
+
+    #[test]
+    fn test_detect_simple_cycle() {
+        let temp = TempDir::new().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        std::os::windows::fs::symlink_dir(&b, &a).unwrap();
+        std::os::windows::fs::symlink_dir(&a, &b).unwrap();
+        assert!(detect_symlink_cycle(&a).is_some());
+    }
+
+    #[test]
+    fn test_detect_three_link_cycle() {
+        let temp = TempDir::new().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        std::os::windows::fs::symlink_dir(&b, &a).unwrap();
+        std::os::windows::fs::symlink_dir(&c, &b).unwrap();
+        std::os::windows::fs::symlink_dir(&a, &c).unwrap();
+        assert!(detect_symlink_cycle(&a).is_some());
+    }
+
+    #[test]
+    fn test_detect_no_cycle_on_broken_symlink() {
+        let temp = TempDir::new().unwrap();
+        let nonexistent = temp.path().join("nonexistent");
+        let link = temp.path().join("link");
+        std::os::windows::fs::symlink_dir(&nonexistent, &link).unwrap();
+        assert!(detect_symlink_cycle(&link).is_none());
+    }
+}
 
 /// 只读查询操作 trait（ISP: 接口隔离原则）
 ///

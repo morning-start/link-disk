@@ -151,6 +151,7 @@ fn test_config_workspace() {
             path: PathBuf::from("D:/test-workspace"),
         },
         apps: HashMap::new(),
+        custom_placeholders: HashMap::new(),
     };
 
     assert_eq!(config.workspace.path, PathBuf::from("D:/test-workspace"));

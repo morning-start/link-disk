@@ -31,6 +31,7 @@ use std::str::FromStr;
 use tracing::{info, debug};
 
 use crate::infra::FileSystem;
+use crate::infra::detect_symlink_cycle;
 use super::link_status::{LinkStatus, LinkStatusChecker};
 use super::strategies::{OnExists, OnExistsAction};
 
@@ -250,6 +251,17 @@ impl LinkOps {
     ) -> Result<()> {
         match link_type {
             LinkType::Symlink => {
+                // 创建前检测循环：如果 target 的符号链接链可回溯到 source，则拒绝
+                if let Some(cycle_path) = detect_symlink_cycle(target) {
+                    anyhow::bail!(
+                        "Symlink cycle detected: '{}' resolves back to the chain at '{}'. \
+                         Cannot create symlink {} -> {}",
+                        target.display(),
+                        cycle_path.display(),
+                        source.display(),
+                        target.display(),
+                    );
+                }
                 if verbose {
                     info!("Creating symlink: {} -> {}", source.display(), target.display());
                 }

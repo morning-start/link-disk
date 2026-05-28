@@ -258,3 +258,195 @@ fn check_target_conflicts(app_id: &str, app_config: &AppConfig) -> Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_source(target: &str) -> Source {
+        Source {
+            source: "<home>/src".into(),
+            target: target.into(),
+            link_type: "symlink".into(),
+            on_exists: None,
+            _source_type: "dir".into(),
+        }
+    }
+
+    fn sample_app(sources: Vec<Source>) -> AppConfig {
+        AppConfig {
+            name: "test-app".into(),
+            enabled: true,
+            on_exists: None,
+            sources,
+        }
+    }
+
+    // === check_placeholders 测试 ===
+
+    #[test]
+    fn test_known_placeholder_passes() {
+        assert!(check_placeholders("<home>/AppData").is_ok());
+        assert!(check_placeholders("<appdata>/test").is_ok());
+        assert!(check_placeholders("<localappdata>/Data").is_ok());
+        assert!(check_placeholders("<documents>/docs").is_ok());
+        assert!(check_placeholders("<temp>/cache").is_ok());
+    }
+
+    #[test]
+    fn test_no_placeholder_passes() {
+        assert!(check_placeholders("C:/plain/path").is_ok());
+        assert!(check_placeholders("D:/data/config").is_ok());
+    }
+
+    #[test]
+    fn test_unknown_placeholder_fails() {
+        let err = check_placeholders("<unknown>/test").unwrap_err().to_string();
+        assert!(err.contains("Unknown placeholder"), "Got: {}", err);
+        assert!(err.contains("<unknown>"), "Got: {}", err);
+    }
+
+    #[test]
+    fn test_typo_placeholder_fails() {
+        let err = check_placeholders("<hoome>/AppData").unwrap_err().to_string();
+        assert!(err.contains("Unknown placeholder"));
+    }
+
+    #[test]
+    fn test_mixed_known_and_unknown_fails() {
+        let err = check_placeholders("<home>/<unkonwn>/data").unwrap_err().to_string();
+        assert!(err.contains("Unknown placeholder"));
+    }
+
+    // === check_target_conflicts 测试 ===
+
+    #[test]
+    fn test_unique_targets_passes() {
+        let app = sample_app(vec![
+            sample_source("app/data"),
+            sample_source("app/config"),
+        ]);
+        assert!(check_target_conflicts("test", &app).is_ok());
+    }
+
+    #[test]
+    fn test_duplicate_target_fails() {
+        let app = sample_app(vec![
+            sample_source("app/data"),
+            sample_source("app/data"),
+        ]);
+        let err = check_target_conflicts("test", &app).unwrap_err().to_string();
+        assert!(err.contains("target conflict"));
+    }
+
+    #[test]
+    fn test_three_sources_all_unique_passes() {
+        let app = sample_app(vec![
+            sample_source("app/data"),
+            sample_source("app/config"),
+            sample_source("app/cache"),
+        ]);
+        assert!(check_target_conflicts("test", &app).is_ok());
+    }
+
+    // === on_exists 策略优先级测试 ===
+
+    #[test]
+    fn test_default_strategy_is_skip() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: None,
+            sources: vec![],
+        };
+        assert_eq!(app.on_exists_strategy(), "skip");
+    }
+
+    #[test]
+    fn test_app_level_strategy() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: Some("replace".into()),
+            sources: vec![],
+        };
+        assert_eq!(app.on_exists_strategy(), "replace");
+    }
+
+    // === Config::validate 测试 ===
+
+    #[test]
+    fn test_empty_workspace_path_fails() {
+        use std::collections::HashMap;
+        let config = Config {
+            workspace: Workspace {
+                path: PathBuf::new(),
+            },
+            apps: HashMap::new(),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_link_type_fails() {
+        let app = AppConfig {
+            name: "bad-link".into(),
+            enabled: true,
+            on_exists: None,
+            sources: vec![Source {
+                source: "<home>/src".into(),
+                target: "dst".into(),
+                link_type: "invalid_link".into(),
+                on_exists: None,
+                _source_type: "dir".into(),
+            }],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("bad-app".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_empty_app_name_fails() {
+        let app = AppConfig {
+            name: "".into(),
+            enabled: true,
+            on_exists: None,
+            sources: vec![],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("empty".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_source_level_invalid_strategy_fails() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: None,
+            sources: vec![Source {
+                source: "<home>/src".into(),
+                target: "dst".into(),
+                link_type: "symlink".into(),
+                on_exists: Some("bad_strategy".into()),
+                _source_type: "dir".into(),
+            }],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("test".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+        };
+        assert!(config.validate().is_err());
+    }
+}

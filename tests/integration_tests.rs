@@ -156,3 +156,206 @@ fn test_config_workspace() {
     assert_eq!(config.workspace.path, PathBuf::from("D:/test-workspace"));
     assert!(config.apps.is_empty());
 }
+
+// === 配置校验集成测试 ===
+
+#[test]
+fn test_config_validate_valid_toml() {
+    use link_disk::infra::Config;
+    let toml_str = r#"
+[workspace]
+path = "D:/workspace"
+
+[apps.test]
+name = "Test App"
+on_exists = "skip"
+
+[[apps.test.sources]]
+source = "<home>/AppData/Test"
+target = "test/data"
+link_type = "symlink"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.validate().is_ok());
+}
+
+#[test]
+fn test_config_validate_unknown_placeholder() {
+    use link_disk::infra::Config;
+    let toml_str = r#"
+[workspace]
+path = "D:/workspace"
+
+[apps.test]
+name = "Test App"
+
+[[apps.test.sources]]
+source = "<unknown>/path"
+target = "test/data"
+link_type = "symlink"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_config_validate_target_conflict() {
+    use link_disk::infra::Config;
+    let toml_str = r#"
+[workspace]
+path = "D:/workspace"
+
+[apps.test]
+name = "Test App"
+
+[[apps.test.sources]]
+source = "<home>/A"
+target = "app/data"
+link_type = "symlink"
+
+[[apps.test.sources]]
+source = "<home>/B"
+target = "app/data"
+link_type = "symlink"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
+    assert!(config.validate().is_err());
+}
+
+#[test]
+fn test_config_validate_app_toml_file() {
+    use link_disk::infra::Config;
+    let temp = TempDir::new().unwrap();
+    let config_path = temp.path().join("config.toml");
+
+    let toml_str = r#"
+[workspace]
+path = "D:/workspace"
+
+[apps.test]
+name = "Test App"
+
+[[apps.test.sources]]
+source = "<home>/Data"
+target = "test/data"
+link_type = "symlink"
+"#;
+    std::fs::write(&config_path, toml_str).unwrap();
+
+    let config = Config::load(&config_path).unwrap();
+    assert!(config.validate().is_ok());
+}
+
+// === LinkOps 完整流程测试 ===
+
+#[test]
+fn test_link_ops_full_link_and_unlink() {
+    use link_disk::domain::{LinkOps, LinkRequest, LinkType, OnExists};
+
+    let (_temp, source, target) = setup_test_env_with_source();
+    std::fs::write(source.join("config.txt"), "config data").unwrap();
+
+    let request = LinkRequest {
+        source: source.clone(),
+        target: target.clone(),
+        link_type: LinkType::Symlink,
+        on_exists: OnExists::Replace,
+        force: false,
+    };
+
+    let fs = FsUtils;
+    let link_result = LinkOps::link_with_fs(&request, &fs, false);
+    assert!(link_result.is_ok(), "Link failed: {:?}", link_result.err());
+
+    // source 成为指向 target 的符号链接
+    assert!(source.is_symlink());
+    assert!(target.is_dir());
+    assert!(target.join("config.txt").exists());
+
+    let unlink_result = LinkOps::unlink_with_fs(&source, &target, false, &fs);
+    assert!(unlink_result.is_ok(), "Unlink failed: {:?}", unlink_result.err());
+    // keep_files=false: 文件移回 source, target 被删除
+    assert!(!target.exists());
+    assert!(source.join("config.txt").exists());
+}
+
+#[test]
+fn test_link_ops_with_replace_strategy() {
+    use link_disk::domain::{LinkOps, LinkRequest, LinkType, OnExists};
+
+    let (_temp, source, target) = setup_test_env_with_source();
+    std::fs::write(source.join("data.txt"), "data").unwrap();
+    std::fs::create_dir_all(&target).unwrap();
+    std::fs::write(target.join("old.txt"), "old").unwrap();
+
+    let request = LinkRequest {
+        source: source.clone(),
+        target: target.clone(),
+        link_type: LinkType::Symlink,
+        on_exists: OnExists::Replace,
+        force: false,
+    };
+
+    let fs = FsUtils;
+    let link_result = LinkOps::link_with_fs(&request, &fs, false);
+    assert!(link_result.is_ok());
+
+    // source 成为 symlink，target 包含合并后的数据
+    assert!(target.is_dir());
+    assert!(target.join("data.txt").exists());
+    assert!(!target.join("old.txt").exists());
+}
+
+// === 请求构建优先级测试 ===
+
+#[test]
+fn test_build_link_request_source_level_on_exists_priority() {
+    use link_disk::infra::build_link_request;
+    use link_disk::domain::OnExists;
+
+    let temp = TempDir::new().unwrap();
+    let workspace_path = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace_path).unwrap();
+
+    let app = link_disk::infra::AppConfig {
+        name: "test-app".into(),
+        enabled: true,
+        on_exists: Some("skip".into()),
+        sources: vec![link_disk::infra::Source {
+            source: "<home>/Test".into(),
+            target: "app/data".into(),
+            link_type: "symlink".into(),
+            on_exists: Some("replace".into()),
+            _source_type: "dir".into(),
+        }],
+    };
+
+    let (request, _, _) = build_link_request(&app, &app.sources[0], &workspace_path, false);
+    assert_eq!(request.on_exists, OnExists::Replace);
+}
+
+#[test]
+fn test_build_link_request_falls_back_to_app_level() {
+    use link_disk::infra::build_link_request;
+    use link_disk::domain::OnExists;
+
+    let temp = TempDir::new().unwrap();
+    let workspace_path = temp.path().join("workspace");
+    std::fs::create_dir_all(&workspace_path).unwrap();
+
+    let app = link_disk::infra::AppConfig {
+        name: "test-app".into(),
+        enabled: true,
+        on_exists: Some("merge".into()),
+        sources: vec![link_disk::infra::Source {
+            source: "<home>/Test".into(),
+            target: "app/data".into(),
+            link_type: "symlink".into(),
+            on_exists: None,
+            _source_type: "dir".into(),
+        }],
+    };
+
+    let (request, _, _) = build_link_request(&app, &app.sources[0], &workspace_path, false);
+    assert_eq!(request.on_exists, OnExists::Merge);
+}

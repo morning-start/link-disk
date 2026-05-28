@@ -198,8 +198,156 @@ impl OnExists {
             Self::Overwrite => constants::OVERWRITE,
         };
         STRATEGY_REGISTRY
-            .get(key)
-            .map(|factory| factory())
-            .unwrap_or_else(|| Box::new(SkipStrategy))
+        .get(key)
+        .map(|factory| factory())
+        .unwrap_or_else(|| Box::new(SkipStrategy))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infra::FsUtils;
+    use tempfile::TempDir;
+
+    fn setup_test_env() -> (TempDir, std::path::PathBuf, std::path::PathBuf) {
+        let temp = TempDir::new().unwrap();
+        let source = temp.path().join("source");
+        let target = temp.path().join("target");
+        (temp, source, target)
+    }
+
+    // === Skip 策略测试 ===
+
+    #[test]
+    fn test_skip_strategy_returns_skip() {
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+
+        let strategy = SkipStrategy;
+        let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
+        assert_eq!(result, OnExistsAction::Skip);
+        assert!(target.exists());
+    }
+
+    // === Replace 策略测试 ===
+
+    #[test]
+    fn test_replace_strategy_removes_target() {
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+
+        let strategy = ReplaceStrategy;
+        let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
+        assert_eq!(result, OnExistsAction::ContinueWithMove);
+        assert!(!target.exists());
+    }
+
+    #[test]
+    fn test_replace_strategy_removes_file_target() {
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::write(&target, "existing file").unwrap();
+
+        let strategy = ReplaceStrategy;
+        let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
+        assert_eq!(result, OnExistsAction::ContinueWithMove);
+        assert!(!target.exists());
+    }
+
+    // === Overwrite 策略测试 ===
+
+    #[test]
+    fn test_overwrite_strategy_removes_source() {
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+
+        let strategy = OverwriteStrategy;
+        let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
+        assert_eq!(result, OnExistsAction::ContinueWithoutMove);
+        assert!(!source.exists());
+    }
+
+    // === Merge 策略测试 ===
+
+    #[test]
+    fn test_merge_strategy_merges_files() {
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(source.join("file1.txt"), "content1").unwrap();
+        std::fs::write(source.join("file2.txt"), "content2").unwrap();
+
+        let strategy = MergeStrategy;
+        let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
+        assert_eq!(result, OnExistsAction::ContinueWithoutMove);
+        assert!(target.join("file1.txt").exists());
+        assert!(target.join("file2.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(target.join("file1.txt")).unwrap(),
+            "content1"
+        );
+    }
+
+    #[test]
+    fn test_merge_strategy_source_removed_after_merge() {
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(source.join("data.txt"), "data").unwrap();
+
+        let strategy = MergeStrategy;
+        strategy.execute(&source, &target, &FsUtils, false).unwrap();
+        assert!(!source.exists());
+    }
+
+    #[test]
+    fn test_merge_strategy_preserves_existing_target_files() {
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        std::fs::write(target.join("existing.txt"), "existing").unwrap();
+        std::fs::write(source.join("new.txt"), "new").unwrap();
+
+        let strategy = MergeStrategy;
+        strategy.execute(&source, &target, &FsUtils, false).unwrap();
+
+        assert!(target.join("existing.txt").exists());
+        assert!(target.join("new.txt").exists());
+        assert_eq!(
+            std::fs::read_to_string(target.join("existing.txt")).unwrap(),
+            "existing"
+        );
+    }
+
+    // === OnExists::strategy 工厂方法测试 ===
+
+    #[test]
+    fn test_on_exists_skip_creates_skip_strategy() {
+        let strategy = OnExists::Skip.strategy();
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
+        assert_eq!(result, OnExistsAction::Skip);
+    }
+
+    #[test]
+    fn test_on_exists_replace_creates_replace_strategy() {
+        let strategy = OnExists::Replace.strategy();
+        let (_temp, source, target) = setup_test_env();
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
+        assert_eq!(result, OnExistsAction::ContinueWithMove);
+    }
+
+    #[test]
+    fn test_on_exists_strategy_defaults_to_skip_on_unknown() {
+        let result = OnExists::from_str_lossy("unknown");
+        assert_eq!(result, OnExists::Skip);
     }
 }

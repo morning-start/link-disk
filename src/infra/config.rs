@@ -88,6 +88,9 @@ pub struct Source {
     /// 链接类型：symlink 或 hardlink
     #[serde(default = "default_link_type")]
     pub link_type: String,
+    /// 源级别 on_exists 策略覆盖（优先级高于应用级别）
+    #[serde(default)]
+    pub on_exists: Option<String>,
     /// 源类型：dir 或 file（内部使用）
     #[serde(default = "default_source_type")]
     pub _source_type: String,
@@ -145,6 +148,21 @@ impl Config {
                         app_id,
                         other
                     ),
+                }
+
+                if let Some(strategy) = &source.on_exists {
+                    match strategy.as_str() {
+                        strategy_constants::SKIP
+                        | strategy_constants::REPLACE
+                        | strategy_constants::MERGE
+                        | strategy_constants::OVERWRITE => {}
+                        other => anyhow::bail!(
+                            "App '{}' source '{}' has invalid on_exists strategy: '{}'",
+                            app_id,
+                            source.source,
+                            other
+                        ),
+                    }
                 }
 
                 if source.source.trim().is_empty() {

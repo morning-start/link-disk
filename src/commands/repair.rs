@@ -3,7 +3,7 @@
 use anyhow::Result;
 
 use crate::domain::{LinkOps, LinkStatus};
-use crate::infra::{resolve_apps, build_link_request, FsUtils, FileSystem, PathResolver, Workspace, Config, AppConfig};
+use crate::infra::{resolve_apps, build_link_request, resolve_paths, FsUtils, FileSystem, Config, AppConfig};
 
 /// 处理 repair 命令：修复损坏的链接
 pub fn handle_repair(config: &Config, apps: &[String], force: bool, verbose: bool) -> Result<()> {
@@ -30,10 +30,8 @@ fn repair_app(
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
-        let source_path: std::path::PathBuf = PathResolver::expand(&source.source).into();
-        let source_display = PathResolver::expand(&source.source);
-        let target_relative = format!("{}/{}", app_config.name, source.target);
-        let target_path = Workspace::resolve_target(workspace_path, &target_relative);
+        let (source_path, target_path) = resolve_paths(app_config, source, workspace_path);
+        let source_display = source_path.to_string_lossy().to_string();
         let status = LinkOps::check_status(&source_path, &target_path);
 
         match status {

@@ -3,7 +3,7 @@
 use anyhow::{Context, Result};
 
 use crate::domain::LinkOps;
-use crate::infra::{build_link_request, resolve_apps, FsUtils, FileSystem, FsWriter, PathResolver, Workspace, Config, AppConfig};
+use crate::infra::{build_link_request, resolve_apps, resolve_paths, FsUtils, FileSystem, FsWriter, Config, AppConfig};
 use spinners::{Spinner, Spinners};
 
 /// 处理 link 命令：为应用创建链接
@@ -58,9 +58,8 @@ fn link_app(
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
-        let source_path_str = PathResolver::expand(&source.source);
-        let target_relative = format!("{}/{}", app_config.name, source.target);
-        let target_path = Workspace::resolve_target(workspace_path, &target_relative);
+        let (source_path, target_path) = resolve_paths(app_config, source, workspace_path);
+        let source_path_str = source_path.to_string_lossy().to_string();
 
         if verbose {
             println!("  Source: {}", source_path_str);

@@ -66,11 +66,15 @@ pub fn build_link_request(
 ) -> (LinkRequest, PathBuf, PathBuf) {
     let (source_path, target_path) = resolve_source_target(app_config, source, workspace_path);
 
+    let on_exists = source.on_exists.as_ref()
+        .map(|s| OnExists::from_str_lossy(s))
+        .unwrap_or_else(|| OnExists::from_str_lossy(app_config.on_exists_strategy()));
+
     let request = LinkRequest {
         source: source_path.clone(),
         target: target_path.clone(),
         link_type: LinkType::from_str_lossy(&source.link_type),
-        on_exists: OnExists::from_str_lossy(app_config.on_exists_strategy()),
+        on_exists,
         force,
     };
 

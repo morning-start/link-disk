@@ -45,6 +45,7 @@ impl Workspace {
             std::fs::write(&config_file, default_config).with_context(|| {
                 format!("Failed to create default config file: {:?}", config_file)
             })?;
+            set_config_file_permissions(&config_file)?;
         }
 
         Ok(std::path::PathBuf::from(path))
@@ -76,6 +77,7 @@ impl Workspace {
             std::fs::write(&config_file, config_content).with_context(|| {
                 format!("Failed to create config file with custom template: {:?}", config_file)
             })?;
+            set_config_file_permissions(&config_file)?;
         }
 
         Ok(std::path::PathBuf::from(path))
@@ -98,4 +100,23 @@ impl Workspace {
         let normalized = relative.replace("/", "\\");
         workspace.join(&normalized)
     }
+}
+
+/// 设置配置文件权限为仅当前用户可读写（Unix: 0o600）
+fn set_config_file_permissions(path: &Path) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let metadata = std::fs::metadata(path)
+            .with_context(|| format!("Failed to read metadata: {:?}", path))?;
+        let mut perms = metadata.permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(path, perms)
+            .with_context(|| format!("Failed to set permissions: {:?}", path))?;
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = path;
+    }
+    Ok(())
 }

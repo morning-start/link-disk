@@ -1,5 +1,9 @@
 # link-disk 配置文件示例
 # 复制此文件到 ~/.link-disk/config.toml 并根据需要修改
+#
+# on_exists 支持两处配置（源级别优先级高于应用级别）：
+#   - 应用级别: [apps.xxx] 下的 on_exists 作为默认值
+#   - 源级别:   [[apps.xxx.sources]] 下的 on_exists 覆盖应用级别
 
 [workspace]
 path = "D:/link-disk-workspace"
@@ -14,6 +18,7 @@ source = "<home>/AppData/Roaming/Code"
 target = "Roaming"
 link_type = "symlink"
 _source_type = "dir"
+# on_exists 未指定，继承应用级别的 "skip"
 
 [[apps.vscode.sources]]
 source = "<home>/.vscode"
@@ -31,3 +36,16 @@ source = "<home>/AppData/Local/Google/Chrome"
 target = "Local"
 link_type = "symlink"
 _source_type = "dir"
+
+# === 示例：源级别策略覆盖 ===
+# 取消注释即可使用，on_exists 在 source 级别覆盖应用级别的设置
+#
+# [apps.myapp]
+# name = "MyApp"
+# on_exists = "skip"
+#
+# [[apps.myapp.sources]]
+# source = "<home>/AppData/Roaming/MyApp"
+# target = "Roaming"
+# link_type = "symlink"
+# on_exists = "merge"   # 仅这个 source 使用 merge，其他 source 仍用应用级别的 skip

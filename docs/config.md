@@ -96,7 +96,27 @@ path = "D:/link-disk-workspace"
 | `source` | 字符串 | ✅ | 源文件夹路径，支持占位符 |
 | `target` | 字符串 | ✅ | 目标子路径（相对于 workspace.path，实际会拼接 `{app_name}/{target}`） |
 | `link_type` | 枚举 | ❌ | 链接类型，默认 `symlink` |
+| `on_exists` | 枚举 | ❌ | 源级别策略覆盖，优先级高于应用级别 |
 | `_source_type` | 字符串 | ❌ | 源类型标识，默认 `dir`（预留字段） |
+
+**on_exists 覆盖说明：**
+
+`on_exists` 可以在应用级别和源级别两处配置：
+
+```toml
+[apps.vscode]
+on_exists = "skip"          # 应用级别默认值
+
+[[apps.vscode.sources]]
+source = "<home>/AppData/Roaming/Code"
+on_exists = "merge"          # 源级别覆盖，优先级更高
+
+[[apps.vscode.sources]]
+source = "<home>/.vscode"
+# 未指定则继承应用级别的 "skip"
+```
+
+**优先级规则：** 源级别 > 应用级别。未在 source 中指定则使用应用级别的策略，应用级别未指定则使用默认值 `skip`。
 
 **link_type 可选值：**
 

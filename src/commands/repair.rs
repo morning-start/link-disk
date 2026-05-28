@@ -11,10 +11,6 @@ use crate::infra::{resolve_apps, build_link_request, resolve_paths, FsUtils, Fil
 pub struct RepairCommand;
 
 impl Command for RepairCommand {
-    fn name(&self) -> &str {
-        "repair"
-    }
-
     fn execute(&self, cli: &Cli) -> Result<()> {
         let (apps, force) = match &cli.command {
             Commands::Repair { apps, force } => (apps, *force),

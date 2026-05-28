@@ -11,10 +11,6 @@ use crate::infra::{resolve_apps, resolve_paths, Config, FsUtils, FileSystem, Pat
 pub struct UnlinkCommand;
 
 impl Command for UnlinkCommand {
-    fn name(&self) -> &str {
-        "unlink"
-    }
-
     fn execute(&self, cli: &Cli) -> Result<()> {
         let (apps, all, force, keep_files) = match &cli.command {
             Commands::Unlink { apps, all, force, keep_files } => (apps, *all, *force, *keep_files),

@@ -12,10 +12,6 @@ use std::path::Path;
 pub struct StatusCommand;
 
 impl Command for StatusCommand {
-    fn name(&self) -> &str {
-        "status"
-    }
-
     fn execute(&self, cli: &Cli) -> Result<()> {
         let apps = match &cli.command {
             Commands::Status { apps } => apps,

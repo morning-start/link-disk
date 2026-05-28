@@ -22,9 +22,6 @@ use anyhow::{Context, Result};
 /// 2. 新建模块实现 Command trait
 /// 3. 在 dispatch 中添加匹配分支
 pub trait Command {
-    /// 命令名称
-    #[allow(dead_code)]
-    fn name(&self) -> &str;
     /// 执行命令
     fn execute(&self, cli: &Cli) -> Result<()>;
 }

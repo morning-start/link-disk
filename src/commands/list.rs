@@ -9,10 +9,6 @@ use anyhow::Result;
 pub struct ListCommand;
 
 impl Command for ListCommand {
-    fn name(&self) -> &str {
-        "list"
-    }
-
     fn execute(&self, cli: &Cli) -> Result<()> {
         let app = match &cli.command {
             Commands::List { app } => app,

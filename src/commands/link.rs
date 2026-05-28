@@ -12,10 +12,6 @@ use spinners::{Spinner, Spinners};
 pub struct LinkCommand;
 
 impl Command for LinkCommand {
-    fn name(&self) -> &str {
-        "link"
-    }
-
     fn execute(&self, cli: &Cli) -> Result<()> {
         let (apps, all, dry_run, force) = match &cli.command {
             Commands::Link { apps, all, dry_run, force } => (apps, *all, *dry_run, *force),

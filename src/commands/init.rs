@@ -11,10 +11,6 @@ use crate::infra::Workspace;
 pub struct InitCommand;
 
 impl Command for InitCommand {
-    fn name(&self) -> &str {
-        "init"
-    }
-
     fn execute(&self, cli: &Cli) -> Result<()> {
         let (path, force) = match &cli.command {
             Commands::Init { path, force } => (path, *force),

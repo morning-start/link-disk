@@ -170,6 +170,51 @@ fn check_config_permissions(path: &Path) {
     }
 }
 
+/// 检查应用级策略与源级策略之间是否存在冲突
+///
+/// 冲突模式：
+/// - skip + (replace/merge/overwrite): 应用级 skip 导致所有 source 策略不会生效
+/// - replace/overwrite + (merge/skip): 应用级销毁与源级保护矛盾
+fn check_strategy_conflicts(app_id: &str, app_config: &AppConfig) -> Result<()> {
+    let app_strategy = app_config.on_exists_strategy();
+
+    for (i, source) in app_config.sources.iter().enumerate() {
+        let Some(ref src_strategy) = source.on_exists else {
+            continue;
+        };
+
+        // 冲突模式 1: app 为 skip 但 source 为其他策略
+        if app_strategy == "skip" && src_strategy != "skip" {
+            anyhow::bail!(
+                "App '{}' strategy is 'skip' but source[{}] strategy is '{}'. \
+                 All source strategies are ignored when app strategy is 'skip'. \
+                 Either set app strategy to '{}' or remove the source-level override.",
+                app_id,
+                i,
+                src_strategy,
+                src_strategy,
+            );
+        }
+
+        // 冲突模式 2: app 为 replace/overwrite 但 source 为 merge/skip
+        if (app_strategy == "replace" || app_strategy == "overwrite")
+            && (src_strategy == "merge" || src_strategy == "skip")
+        {
+            anyhow::bail!(
+                "App '{}' strategy is '{}' (destructive) but source[{}] strategy is '{}' (preserving). \
+                 This creates conflicting behaviors: the app-level strategy will override the source-level. \
+                 Consider aligning the strategies.",
+                app_id,
+                app_strategy,
+                i,
+                src_strategy,
+            );
+        }
+    }
+
+    Ok(())
+}
+
 impl Config {
     /// 从指定路径加载配置文件
     pub fn load(path: &Path) -> Result<Self> {
@@ -257,6 +302,7 @@ impl Config {
             }
 
             check_target_conflicts(app_id, app_config)?;
+            check_strategy_conflicts(app_id, app_config)?;
         }
 
         Ok(())
@@ -520,5 +566,151 @@ mod tests {
             custom_placeholders: std::collections::HashMap::new(),
         };
         assert!(config.validate().is_err());
+    }
+
+    // === 策略冲突测试 ===
+
+    #[test]
+    fn test_app_skip_with_source_replace_fails() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: Some("skip".into()),
+            sources: vec![Source {
+                source: "<home>/src".into(),
+                target: "dst".into(),
+                link_type: "symlink".into(),
+                on_exists: Some("replace".into()),
+                _source_type: "dir".into(),
+            }],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("test".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+            custom_placeholders: std::collections::HashMap::new(),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_app_skip_with_source_merge_fails() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: Some("skip".into()),
+            sources: vec![Source {
+                source: "<home>/src".into(),
+                target: "dst".into(),
+                link_type: "symlink".into(),
+                on_exists: Some("merge".into()),
+                _source_type: "dir".into(),
+            }],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("test".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+            custom_placeholders: std::collections::HashMap::new(),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_app_replace_with_source_merge_fails() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: Some("replace".into()),
+            sources: vec![Source {
+                source: "<home>/src".into(),
+                target: "dst".into(),
+                link_type: "symlink".into(),
+                on_exists: Some("merge".into()),
+                _source_type: "dir".into(),
+            }],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("test".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+            custom_placeholders: std::collections::HashMap::new(),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_app_overwrite_with_source_skip_fails() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: Some("overwrite".into()),
+            sources: vec![Source {
+                source: "<home>/src".into(),
+                target: "dst".into(),
+                link_type: "symlink".into(),
+                on_exists: Some("skip".into()),
+                _source_type: "dir".into(),
+            }],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("test".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+            custom_placeholders: std::collections::HashMap::new(),
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_no_conflict_without_source_override() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: Some("replace".into()),
+            sources: vec![Source {
+                source: "<home>/src".into(),
+                target: "dst".into(),
+                link_type: "symlink".into(),
+                on_exists: None,
+                _source_type: "dir".into(),
+            }],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("test".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+            custom_placeholders: std::collections::HashMap::new(),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_no_conflict_consistent_strategies() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: Some("replace".into()),
+            sources: vec![Source {
+                source: "<home>/src".into(),
+                target: "dst".into(),
+                link_type: "symlink".into(),
+                on_exists: Some("replace".into()),
+                _source_type: "dir".into(),
+            }],
+        };
+        let mut apps = std::collections::HashMap::new();
+        apps.insert("test".into(), app);
+        let config = Config {
+            workspace: Workspace { path: PathBuf::from("D:/ws") },
+            apps,
+            custom_placeholders: std::collections::HashMap::new(),
+        };
+        assert!(config.validate().is_ok());
     }
 }

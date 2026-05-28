@@ -106,7 +106,15 @@ impl FsUtils {
 
 impl FsReader for FsUtils {
     fn normalize_path(&self, path: &Path) -> String {
-        path.to_string_lossy().replace("\\", "/").to_lowercase()
+        let normalized = path.to_string_lossy().replace("\\", "/");
+        #[cfg(windows)]
+        {
+            normalized.to_lowercase()
+        }
+        #[cfg(not(windows))]
+        {
+            normalized
+        }
     }
 
     fn read_link(&self, path: &Path) -> Option<std::path::PathBuf> {

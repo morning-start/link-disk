@@ -2,9 +2,30 @@
 
 use anyhow::{Context, Result};
 
+use crate::cli::{Cli, Commands};
+use crate::commands::{load_config, Command};
 use crate::domain::LinkOps;
 use crate::infra::{build_link_request, resolve_apps, resolve_paths, FsUtils, FileSystem, FsWriter, Config, AppConfig};
 use spinners::{Spinner, Spinners};
+
+/// Link 命令实现
+pub struct LinkCommand;
+
+impl Command for LinkCommand {
+    fn name(&self) -> &str {
+        "link"
+    }
+
+    fn execute(&self, cli: &Cli) -> Result<()> {
+        let (apps, all, dry_run, force) = match &cli.command {
+            Commands::Link { apps, all, dry_run, force } => (apps, *all, *dry_run, *force),
+            _ => unreachable!(),
+        };
+
+        let config = load_config(&cli.config)?;
+        handle_link(&config, apps, all, dry_run, force, cli.verbose)
+    }
+}
 
 /// 处理 link 命令：为应用创建链接
 pub fn handle_link(

@@ -1,6 +1,29 @@
 //! 列表命令处理
 
+use crate::cli::{Cli, Commands};
+use crate::commands::{load_config, Command};
 use crate::infra::{AppConfig, Config};
+use anyhow::Result;
+
+/// List 命令实现
+pub struct ListCommand;
+
+impl Command for ListCommand {
+    fn name(&self) -> &str {
+        "list"
+    }
+
+    fn execute(&self, cli: &Cli) -> Result<()> {
+        let app = match &cli.command {
+            Commands::List { app } => app,
+            _ => unreachable!(),
+        };
+
+        let config = load_config(&cli.config)?;
+        handle_list(&config, app);
+        Ok(())
+    }
+}
 
 /// 处理 list 命令：列出应用的链接配置
 pub fn handle_list(config: &Config, app: &Option<String>) {

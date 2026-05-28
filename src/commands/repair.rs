@@ -2,8 +2,29 @@
 
 use anyhow::Result;
 
+use crate::cli::{Cli, Commands};
+use crate::commands::{load_config, Command};
 use crate::domain::{LinkOps, LinkStatus};
 use crate::infra::{resolve_apps, build_link_request, resolve_paths, FsUtils, FileSystem, Config, AppConfig};
+
+/// Repair 命令实现
+pub struct RepairCommand;
+
+impl Command for RepairCommand {
+    fn name(&self) -> &str {
+        "repair"
+    }
+
+    fn execute(&self, cli: &Cli) -> Result<()> {
+        let (apps, force) = match &cli.command {
+            Commands::Repair { apps, force } => (apps, *force),
+            _ => unreachable!(),
+        };
+
+        let config = load_config(&cli.config)?;
+        handle_repair(&config, apps, force, cli.verbose)
+    }
+}
 
 /// 处理 repair 命令：修复损坏的链接
 pub fn handle_repair(config: &Config, apps: &[String], force: bool, verbose: bool) -> Result<()> {

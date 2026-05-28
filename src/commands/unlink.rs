@@ -2,8 +2,34 @@
 
 use anyhow::{Context, Result};
 
+use crate::cli::{Cli, Commands};
+use crate::commands::{load_config, Command};
 use crate::domain::LinkOps;
 use crate::infra::{resolve_apps, resolve_paths, Config, FsUtils, FileSystem, PathResolver, AppConfig};
+
+/// Unlink 命令实现
+pub struct UnlinkCommand;
+
+impl Command for UnlinkCommand {
+    fn name(&self) -> &str {
+        "unlink"
+    }
+
+    fn execute(&self, cli: &Cli) -> Result<()> {
+        let (apps, all, force, keep_files) = match &cli.command {
+            Commands::Unlink { apps, all, force, keep_files } => (apps, *all, *force, *keep_files),
+            _ => unreachable!(),
+        };
+
+        if !force {
+            println!("This will remove links and move files back. Use --force to confirm.");
+            return Ok(());
+        }
+
+        let config = load_config(&cli.config)?;
+        handle_unlink(&config, apps, all, keep_files, cli.verbose)
+    }
+}
 
 /// 处理 unlink 命令：删除链接并可选择移回文件
 pub fn handle_unlink(

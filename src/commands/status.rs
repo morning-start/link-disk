@@ -1,9 +1,32 @@
 //! 状态检查命令处理
 
+use crate::cli::{Cli, Commands};
+use crate::commands::{load_config, Command};
 use crate::infra::{Config, AppConfig};
 use crate::domain::{LinkOps, LinkStatus};
 use crate::infra::resolve_paths;
+use anyhow::Result;
 use std::path::Path;
+
+/// Status 命令实现
+pub struct StatusCommand;
+
+impl Command for StatusCommand {
+    fn name(&self) -> &str {
+        "status"
+    }
+
+    fn execute(&self, cli: &Cli) -> Result<()> {
+        let apps = match &cli.command {
+            Commands::Status { apps } => apps,
+            _ => unreachable!(),
+        };
+
+        let config = load_config(&cli.config)?;
+        handle_status(&config, apps);
+        Ok(())
+    }
+}
 
 /// 处理 status 命令：检查应用链接状态
 pub fn handle_status(config: &Config, apps: &[String]) {

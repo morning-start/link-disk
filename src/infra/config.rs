@@ -22,6 +22,18 @@ pub mod constants {
     pub const DEFAULT_LINK_TYPE: &str = SYMLINK;
     /// 默认源类型
     pub const DEFAULT_SOURCE_TYPE: &str = "dir";
+    /// 已知占位符列表（用于配置校验）
+    pub const KNOWN_PLACEHOLDERS: &[&str] = &[
+        "<home>",
+        "<appdata>",
+        "<localappdata>",
+        "<documents>",
+        "<desktop>",
+        "<downloads>",
+        "<temp>",
+        "<programfiles>",
+        "<programfilesx86>",
+    ];
 }
 
 /// 策略常量（用于配置验证）
@@ -172,7 +184,12 @@ impl Config {
                 if source.target.trim().is_empty() {
                     anyhow::bail!("App '{}' has empty target path", app_id);
                 }
+
+                check_placeholders(&source.source)
+                    .map_err(|e| anyhow::anyhow!("App '{}': {}", app_id, e))?;
             }
+
+            check_target_conflicts(app_id, app_config)?;
         }
 
         Ok(())
@@ -194,4 +211,50 @@ impl AppConfig {
     pub fn on_exists_strategy(&self) -> &str {
         self.on_exists.as_deref().unwrap_or(constants::DEFAULT_ON_EXISTS)
     }
+}
+
+/// 检查路径中的占位符是否都是已知的
+fn check_placeholders(path: &str) -> Result<()> {
+    let mut start = 0;
+    while let Some(open) = path[start..].find('<') {
+        let abs_open = start + open;
+        if let Some(close) = path[abs_open..].find('>') {
+            let abs_close = abs_open + close + 1;
+            let candidate = &path[abs_open..abs_close];
+            let is_known = constants::KNOWN_PLACEHOLDERS.iter().any(|k| *k == candidate);
+
+            if !is_known {
+                anyhow::bail!(
+                    "Unknown placeholder '{}' in path '{}'",
+                    candidate,
+                    path
+                );
+            }
+
+            start = abs_close;
+        } else {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// 检查应用内是否存在 target 冲突（多个 source 映射到相同 target）
+fn check_target_conflicts(app_id: &str, app_config: &AppConfig) -> Result<()> {
+    let mut seen = std::collections::HashMap::<&str, usize>::new();
+
+    for source in &app_config.sources {
+        if let Some(index) = seen.get(source.target.as_str()) {
+            anyhow::bail!(
+                "App '{}' has target conflict: source[{}] and source[{}] both map to '{}'",
+                app_id,
+                index,
+                seen.len(),
+                source.target,
+            );
+        }
+        seen.insert(source.target.as_str(), seen.len());
+    }
+
+    Ok(())
 }

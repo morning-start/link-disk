@@ -5,16 +5,17 @@
 mod config;
 mod fs_utils;
 mod path_resolver;
-mod workspace;
 mod request_builder;
+mod workspace;
 
 pub use config::{Config, AppConfig, Source};
-pub use fs_utils::{detect_symlink_cycle, FileSystem, FsUtils, FsWriter};
+pub use fs_utils::{detect_symlink_cycle, FileSystem, FsUtils};
 pub use path_resolver::{PathResolver, register_placeholder, is_known_placeholder};
+pub use request_builder::build_link_request;
 pub use workspace::Workspace;
 
 // 应用解析和请求构建函数（供 commands 层使用）
-pub use request_builder::{resolve_apps, build_link_request, resolve_paths};
+pub use request_builder::{resolve_apps, resolve_paths};
 
 // 以下导出仅供集成测试使用
 #[doc(hidden)]
@@ -26,6 +27,3 @@ pub use config::constants as config_constants;
 #[doc(hidden)]
 #[allow(unused_imports)]
 pub use config::strategy_constants;
-#[doc(hidden)]
-#[allow(unused_imports)]
-pub use fs_utils::{FsReader, FsLinker, FsCopier};

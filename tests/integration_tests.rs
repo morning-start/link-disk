@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use tempfile::TempDir;
-use link_disk::infra::{FsUtils, FsWriter, FsLinker};
+use link_disk::infra::{FsUtils, FileSystem};
 
 fn setup_test_env_with_source() -> (TempDir, PathBuf, PathBuf) {
     let temp = TempDir::new().unwrap();

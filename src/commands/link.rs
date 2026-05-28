@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use crate::cli::{Cli, Commands};
 use crate::commands::{load_config, Command};
 use crate::domain::LinkOps;
-use crate::infra::{build_link_request, resolve_apps, resolve_paths, FsUtils, FileSystem, FsWriter, Config, AppConfig};
+use crate::infra::{build_link_request, resolve_apps, resolve_paths, Config, AppConfig, FileSystem, FsUtils};
 use spinners::{Spinner, Spinners};
 
 /// Link 命令实现

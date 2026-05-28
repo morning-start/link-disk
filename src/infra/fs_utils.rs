@@ -8,15 +8,10 @@
 //! - 文件/目录/符号链接的安全删除
 //! - 符号链接和硬链接的创建
 //!
-//! ## 接口设计（ISP: 接口隔离原则）
+//! ## 接口设计（单一 trait）
 //!
-//! 为遵循接口隔离原则，文件系统操作被拆分为 4 个子 trait：
-//! - [`FsReader`] - 只读查询操作
-//! - [`FsCopier`] - 目录复制操作
-//! - [`FsWriter`] - 文件/目录写操作
-//! - [`FsLinker`] - 链接创建操作
-//!
-//! 同时保留 [`FileSystem`] 组合 trait 以保持向后兼容。
+//! 使用统一的 [`FileSystem`] trait 包含所有文件系统操作，
+//! 由 [`FsUtils`] 提供默认实现。
 
 use anyhow::{Context, Result};
 use std::collections::HashSet;
@@ -125,29 +120,19 @@ mod tests {
     }
 }
 
-/// 只读查询操作 trait（ISP: 接口隔离原则）
+/// 文件系统操作 trait
 ///
-/// 提供文件系统的只读查询功能，适用于状态检查、路径比较等场景。
-pub trait FsReader {
+/// 包含所有文件系统操作，由 [`FsUtils`] 提供默认实现。
+pub trait FileSystem {
     /// 规范化路径（统一使用正斜杠并转为小写）
     fn normalize_path(&self, path: &Path) -> String;
 
     /// 读取符号链接指向的目标路径
     fn read_link(&self, path: &Path) -> Option<std::path::PathBuf>;
-}
 
-/// 目录复制操作 trait（ISP: 接口隔离原则）
-///
-/// 提供目录级别的复制功能，适用于目录合并、备份等场景。
-pub trait FsCopier {
     /// 递归复制目录及其所有内容
     fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()>;
-}
 
-/// 文件/目录写操作 trait（ISP: 接口隔离原则）
-///
-/// 提供文件系统的写操作功能，包括创建、删除、移动等。
-pub trait FsWriter {
     /// 跨文件系统移动（先复制再删除原位置）
     fn move_dir_cross_filesystem(&self, src: &Path, dst: &Path) -> Result<()>;
 
@@ -159,12 +144,7 @@ pub trait FsWriter {
 
     /// 重命名文件或目录
     fn rename(&self, src: &Path, dst: &Path) -> Result<()>;
-}
 
-/// 链接创建操作 trait（ISP: 接口隔离原则）
-///
-/// 提供符号链接和硬链接的创建功能。
-pub trait FsLinker {
     /// 创建符号链接（自动检测目标类型选择正确的方法）
     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()>;
 
@@ -172,22 +152,11 @@ pub trait FsLinker {
     fn hard_link(&self, target: &Path, link: &Path) -> Result<()>;
 }
 
-/// 文件系统操作组合 trait（向后兼容）
-///
-/// 组合了所有细粒度 trait，方便不需要精细控制的场景使用。
-/// 推荐新功能优先使用子 trait 以实现更好的接口隔离。
-pub trait FileSystem: FsReader + FsCopier + FsWriter + FsLinker {}
-
-// 自动实现 FileSystem trait 给所有满足条件的类型
-impl<T: FsReader + FsCopier + FsWriter + FsLinker> FileSystem for T {}
-
 /// 文件系统操作工具类（默认实现）
 pub struct FsUtils;
 
 impl FsUtils {
     /// 删除符号链接（Windows 上区分目录/文件符号链接）
-    ///
-    /// 这是一个内部辅助方法，不在 FileSystem trait 中暴露。
     fn remove_symlink(path: &Path) -> Result<()> {
         #[cfg(windows)]
         {
@@ -205,9 +174,7 @@ impl FsUtils {
     }
 }
 
-// === FsReader 实现 ===
-
-impl FsReader for FsUtils {
+impl FileSystem for FsUtils {
     fn normalize_path(&self, path: &Path) -> String {
         let normalized = path.to_string_lossy().replace("\\", "/");
         #[cfg(windows)]
@@ -223,11 +190,7 @@ impl FsReader for FsUtils {
     fn read_link(&self, path: &Path) -> Option<std::path::PathBuf> {
         std::fs::read_link(path).ok()
     }
-}
 
-// === FsCopier 实现 ===
-
-impl FsCopier for FsUtils {
     fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()> {
         if !src.is_dir() {
             anyhow::bail!(
@@ -259,11 +222,7 @@ impl FsCopier for FsUtils {
 
         Ok(())
     }
-}
 
-// === FsWriter 实现 ===
-
-impl FsWriter for FsUtils {
     fn move_dir_cross_filesystem(&self, src: &Path, dst: &Path) -> Result<()> {
         if src.is_file() {
             std::fs::copy(src, dst)
@@ -315,11 +274,7 @@ impl FsWriter for FsUtils {
             .with_context(|| format!("Failed to rename {:?} to {:?}", src, dst))?;
         Ok(())
     }
-}
 
-// === FsLinker 实现 ===
-
-impl FsLinker for FsUtils {
     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
         if link.is_symlink() {
             std::fs::remove_file(link)

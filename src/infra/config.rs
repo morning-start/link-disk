@@ -51,8 +51,8 @@ pub mod strategy_constants {
     pub const REPLACE: &str = "replace";
     /// 合并策略
     pub const MERGE: &str = "merge";
-    /// 覆盖策略
-    pub const OVERWRITE: &str = "overwrite";
+    /// 保留策略
+    pub const PRESERVE: &str = "preserve";
 }
 
 /// 顶层配置结构体
@@ -111,8 +111,9 @@ pub struct Source {
     /// 源级别 on_exists 策略覆盖（优先级高于应用级别）
     #[serde(default)]
     pub on_exists: Option<String>,
-    /// 源类型：dir 或 file（内部使用）
+    /// 源类型：dir 或 file（保留字段，向后兼容旧配置）
     #[serde(default = "default_source_type")]
+    #[allow(dead_code)]
     pub _source_type: String,
 }
 
@@ -173,8 +174,8 @@ fn check_config_permissions(path: &Path) {
 /// 检查应用级策略与源级策略之间是否存在冲突
 ///
 /// 冲突模式：
-/// - skip + (replace/merge/overwrite): 应用级 skip 导致所有 source 策略不会生效
-/// - replace/overwrite + (merge/skip): 应用级销毁与源级保护矛盾
+    /// - skip + (replace/merge/preserve): 应用级 skip 导致所有 source 策略不会生效
+    /// - replace/preserve + (merge/skip): 应用级销毁与源级保护矛盾
 fn check_strategy_conflicts(app_id: &str, app_config: &AppConfig) -> Result<()> {
     let app_strategy = app_config.on_exists_strategy();
 
@@ -196,8 +197,8 @@ fn check_strategy_conflicts(app_id: &str, app_config: &AppConfig) -> Result<()> 
             );
         }
 
-        // 冲突模式 2: app 为 replace/overwrite 但 source 为 merge/skip
-        if (app_strategy == "replace" || app_strategy == "overwrite")
+        // 冲突模式 2: app 为 replace/preserve 但 source 为 merge/skip
+        if (app_strategy == "replace" || app_strategy == "preserve" || app_strategy == "overwrite")
             && (src_strategy == "merge" || src_strategy == "skip")
         {
             anyhow::bail!(
@@ -256,7 +257,8 @@ impl Config {
                 strategy_constants::SKIP
                 | strategy_constants::REPLACE
                 | strategy_constants::MERGE
-                | strategy_constants::OVERWRITE => {}
+                | strategy_constants::PRESERVE => {}
+                "overwrite" => {}
                 other => anyhow::bail!(
                     "App '{}' has invalid on_exists strategy: '{}'",
                     app_id,
@@ -279,7 +281,8 @@ impl Config {
                         strategy_constants::SKIP
                         | strategy_constants::REPLACE
                         | strategy_constants::MERGE
-                        | strategy_constants::OVERWRITE => {}
+                        | strategy_constants::PRESERVE => {}
+                        "overwrite" => {}
                         other => anyhow::bail!(
                             "App '{}' source '{}' has invalid on_exists strategy: '{}'",
                             app_id,
@@ -643,11 +646,11 @@ mod tests {
     }
 
     #[test]
-    fn test_app_overwrite_with_source_skip_fails() {
+    fn test_app_preserve_with_source_skip_fails() {
         let app = AppConfig {
             name: "test".into(),
             enabled: true,
-            on_exists: Some("overwrite".into()),
+            on_exists: Some("preserve".into()),
             sources: vec![Source {
                 source: "<home>/src".into(),
                 target: "dst".into(),

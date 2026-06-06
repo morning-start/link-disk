@@ -122,7 +122,7 @@ impl LinkOps {
     /// | source 存在 + target 不存在 | 移动 source → target | source 不存在 + target 存在 |
     /// | source 存在 + target 存在 + replace | 删除 target，移动 source → target | source 不存在 + target 存在 |
     /// | source 存在 + target 存在 + merge | 合并 source 到 target 后删除 source | source 不存在 + target 存在 |
-    /// | source 存在 + target 存在 + overwrite | 删除 source | source 不存在 + target 存在 |
+    /// | source 存在 + target 存在 + overwrite/preserve | 删除 source | source 不存在 + target 存在 |
     /// | source 存在 + target 存在 + skip | 抛出错误（跳过） | 不继续 |
     /// | source 不存在 + target 不存在 | 创建 target 目录 | source 不存在 + target 存在 |
     /// | source 不存在 + target 存在 | 无需操作（已是标准状态） | source 不存在 + target 存在 |
@@ -164,7 +164,7 @@ impl LinkOps {
     /// # 策略行为
     /// - Replace: 删除 target → 移动 source → target
     /// - Merge: 合并 source 到 target → 删除 source
-    /// - Overwrite: 删除 source
+    /// - Overwrite/Preserve: 删除 source
     /// - Skip: 返回错误，中断流程
     fn apply_on_exists_strategy(
         source: &Path,
@@ -178,7 +178,7 @@ impl LinkOps {
             OnExistsAction::Skip => {
                 anyhow::bail!(
                     "Target already exists and on_exists strategy is 'skip'. \
-                     Use a different strategy (replace/merge/overwrite) or remove the target manually."
+                     Use a different strategy (replace/merge/preserve) or remove the target manually."
                 )
             }
             OnExistsAction::ContinueWithMove => {

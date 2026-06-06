@@ -1,8 +1,9 @@
 # link-disk 配置文件
-# on_exists: skip | overwrite | fail
-#   - skip: 不处理已存在的链接
-#   - overwrite: 覆盖已存在的链接
-#   - fail: 抛出错误
+# on_exists: skip | replace | merge | preserve
+#   - skip: 目标已存在时跳过，不执行任何操作
+#   - replace: 删除目标位置，将源数据移动到目标，再创建链接（源数据优先）
+#   - merge: 合并源目录到目标目录，再创建链接
+#   - preserve: 保留目标数据，删除源位置后创建链接（目标数据优先）
 # link_type: symlink | hardlink
 #   - symlink: 创建符号链接
 #   - hardlink: 创建硬链接
@@ -20,13 +21,11 @@ on_exists = "skip"
 source = "<home>/AppData/Roaming/Code"
 target = "Roaming"
 link_type = "symlink"
-_source_type = "dir"
 
 [[apps.vscode.sources]]
 source = "<home>/.vscode"
 target = "config"
 link_type = "symlink"
-_source_type = "dir"
 
 [apps.chrome]
 name = "Chrome"
@@ -37,6 +36,5 @@ on_exists = "skip"
 source = "<home>/AppData/Local/Google/Chrome"
 target = "Local"
 link_type = "symlink"
-_source_type = "dir"
 
 

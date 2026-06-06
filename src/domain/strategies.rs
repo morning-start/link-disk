@@ -23,8 +23,8 @@ pub mod constants {
     pub const REPLACE: &str = "replace";
     /// 合并策略
     pub const MERGE: &str = "merge";
-    /// 覆盖策略
-    pub const OVERWRITE: &str = "overwrite";
+    /// 保留策略（保留 target 数据，删除 source 后创建链接）
+    pub const PRESERVE: &str = "preserve";
 }
 
 /// 策略执行结果：指示主流程如何继续
@@ -60,9 +60,9 @@ pub enum OnExists {
     Skip,
     /// 合并目录内容
     Merge,
-    /// 覆盖源文件后重新创建链接
-    Overwrite,
-    /// 删除目标后移动源到目标位置
+    /// 保留策略：保留 target 数据，删除 source 后创建链接
+    Preserve,
+    /// 替换策略：删除 target 后移动 source 到 target 位置
     Replace,
 }
 
@@ -81,7 +81,9 @@ static STRATEGY_REGISTRY: LazyLock<HashMap<&'static str, StrategyFactory>> = Laz
     reg.insert(constants::SKIP, skip_strategy_factory);
     reg.insert(constants::REPLACE, replace_strategy_factory);
     reg.insert(constants::MERGE, merge_strategy_factory);
-    reg.insert(constants::OVERWRITE, overwrite_strategy_factory);
+    reg.insert(constants::PRESERVE, preserve_strategy_factory);
+    // 向后兼容：旧版 overwrite 别名
+    reg.insert("overwrite", preserve_strategy_factory);
     reg
 });
 
@@ -95,8 +97,8 @@ fn replace_strategy_factory() -> Box<dyn OnExistsStrategy> {
 fn merge_strategy_factory() -> Box<dyn OnExistsStrategy> {
     Box::new(MergeStrategy)
 }
-fn overwrite_strategy_factory() -> Box<dyn OnExistsStrategy> {
-    Box::new(OverwriteStrategy)
+fn preserve_strategy_factory() -> Box<dyn OnExistsStrategy> {
+    Box::new(PreserveStrategy)
 }
 
 // === 策略实现 ===
@@ -151,13 +153,17 @@ impl OnExistsStrategy for MergeStrategy {
     }
 }
 
-/// Overwrite 策略：删除源后不移动（源已被删除），直接创建链接
-struct OverwriteStrategy;
+/// Preserve 策略：保留 target 数据，删除 source 后创建链接
+///
+/// 当 target 已存在时，保留 target 内容不变，直接删除 source，
+/// 然后在 source 位置创建一个指向 target 的链接。
+/// 适用于 "target 上的数据是最新版本"的场景。
+struct PreserveStrategy;
 
-impl OnExistsStrategy for OverwriteStrategy {
+impl OnExistsStrategy for PreserveStrategy {
     fn execute(&self, source: &Path, _target: &Path, fs: &dyn FileSystem, verbose: bool) -> Result<OnExistsAction> {
         if verbose {
-            tracing::info!("Removing existing source for overwrite: {}", source.display());
+            tracing::info!("Preserving target, removing source: {}", source.display());
         }
         fs.remove_if_exists(source)?;
         Ok(OnExistsAction::ContinueWithoutMove)
@@ -174,7 +180,7 @@ impl FromStr for OnExists {
             "skip" => Ok(OnExists::Skip),
             "replace" => Ok(OnExists::Replace),
             "merge" => Ok(OnExists::Merge),
-            "overwrite" => Ok(OnExists::Overwrite),
+            "preserve" | "overwrite" => Ok(OnExists::Preserve),
             _ => Err(format!("Unknown on_exists strategy: {}", s)),
         }
     }
@@ -195,7 +201,7 @@ impl OnExists {
             Self::Skip => constants::SKIP,
             Self::Replace => constants::REPLACE,
             Self::Merge => constants::MERGE,
-            Self::Overwrite => constants::OVERWRITE,
+            Self::Preserve => constants::PRESERVE,
         };
         STRATEGY_REGISTRY
         .get(key)
@@ -257,15 +263,15 @@ mod tests {
         assert!(!target.exists());
     }
 
-    // === Overwrite 策略测试 ===
+    // === Preserve 策略测试 ===
 
     #[test]
-    fn test_overwrite_strategy_removes_source() {
+    fn test_preserve_strategy_removes_source() {
         let (_temp, source, target) = setup_test_env();
         std::fs::create_dir_all(&source).unwrap();
         std::fs::create_dir_all(&target).unwrap();
 
-        let strategy = OverwriteStrategy;
+        let strategy = PreserveStrategy;
         let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
         assert_eq!(result, OnExistsAction::ContinueWithoutMove);
         assert!(!source.exists());
@@ -336,13 +342,13 @@ mod tests {
     }
 
     #[test]
-    fn test_on_exists_replace_creates_replace_strategy() {
-        let strategy = OnExists::Replace.strategy();
+    fn test_on_exists_preserve_creates_preserve_strategy() {
+        let strategy = OnExists::Preserve.strategy();
         let (_temp, source, target) = setup_test_env();
         std::fs::create_dir_all(&source).unwrap();
         std::fs::create_dir_all(&target).unwrap();
         let result = strategy.execute(&source, &target, &FsUtils, false).unwrap();
-        assert_eq!(result, OnExistsAction::ContinueWithMove);
+        assert_eq!(result, OnExistsAction::ContinueWithoutMove);
     }
 
     #[test]

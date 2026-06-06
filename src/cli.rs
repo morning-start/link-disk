@@ -21,8 +21,8 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
-    /// 配置文件路径 (-c, --config)
-    #[arg(short, long, global = true, default_value = "~/.link-disk/config.toml")]
+    /// 配置文件路径 (-c, --config)，默认 ~/.link-disk/config.toml
+    #[arg(short, long, global = true)]
     pub config: Option<String>,
 
     /// 子命令
@@ -96,6 +96,10 @@ pub enum Commands {
         /// 应用名称列表（不指定则修复所有应用）
         #[arg(help = "应用名称（不指定则修复所有应用）")]
         apps: Vec<String>,
+
+        /// 处理所有已配置的应用 (-a, --all)
+        #[arg(short, long, help = "处理所有已配置的应用")]
+        all: bool,
 
         /// 强制修复（自动创建缺失的链接）(-f, --force)
         #[arg(short, long, help = "强制修复（自动创建缺失的链接）")]

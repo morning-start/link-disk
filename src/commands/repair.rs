@@ -5,27 +5,27 @@ use anyhow::Result;
 use crate::cli::{Cli, Commands};
 use crate::commands::{load_config, Command};
 use crate::domain::{LinkOps, LinkStatus};
-use crate::infra::{resolve_apps, build_link_request, resolve_paths, FsUtils, FileSystem, Config, AppConfig};
+use crate::infra::{build_link_request, resolve_apps, FsUtils, FileSystem, Config, AppConfig};
 
 /// Repair 命令实现
 pub struct RepairCommand;
 
 impl Command for RepairCommand {
     fn execute(&self, cli: &Cli) -> Result<()> {
-        let (apps, force) = match &cli.command {
-            Commands::Repair { apps, force } => (apps, *force),
+        let (apps, all, force) = match &cli.command {
+            Commands::Repair { apps, all, force } => (apps, *all, *force),
             _ => unreachable!(),
         };
 
         let config = load_config(&cli.config)?;
-        handle_repair(&config, apps, force, cli.verbose)
+        handle_repair(&config, apps, all, force, cli.verbose)
     }
 }
 
 /// 处理 repair 命令：修复损坏的链接
-pub fn handle_repair(config: &Config, apps: &[String], force: bool, verbose: bool) -> Result<()> {
+pub fn handle_repair(config: &Config, apps: &[String], all: bool, force: bool, verbose: bool) -> Result<()> {
     let fs = FsUtils;
-    let apps_to_repair = resolve_apps(config, apps, false);
+    let apps_to_repair = resolve_apps(config, apps, all);
 
     for app_id in apps_to_repair {
         if let Some(app_config) = config.get_app(app_id) {
@@ -47,9 +47,9 @@ fn repair_app(
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
-        let (source_path, target_path) = resolve_paths(app_config, source, workspace_path);
+        let (request, source_path, _) = build_link_request(app_config, source, workspace_path, force);
         let source_display = source_path.to_string_lossy().to_string();
-        let status = LinkOps::check_status(&source_path, &target_path);
+        let status = LinkOps::check_status(&source_path, &request.target);
 
         match status {
             LinkStatus::Broken => {
@@ -59,8 +59,6 @@ fn repair_app(
 
                 fs.remove_if_exists(&source_path)?;
 
-                let (request, _, _) = build_link_request(app_config, source, workspace_path, true);
-
                 LinkOps::link_with_fs(&request, fs, verbose)?;
             }
             LinkStatus::TargetOnly => {
@@ -69,7 +67,7 @@ fn repair_app(
                         println!("  Creating link for orphaned target: {}", source_display);
                     }
 
-                    fs.create_symlink(&target_path, &source_path)?;
+                    LinkOps::link_with_fs(&request, fs, verbose)?;
                 } else {
                     println!(
                         "  Target exists without link. Use --force to create link: {}",

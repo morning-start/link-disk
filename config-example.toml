@@ -17,14 +17,12 @@ on_exists = "skip"
 source = "<home>/AppData/Roaming/Code"
 target = "Roaming"
 link_type = "symlink"
-_source_type = "dir"
 # on_exists 未指定，继承应用级别的 "skip"
 
 [[apps.vscode.sources]]
 source = "<home>/.vscode"
 target = "config"
 link_type = "symlink"
-_source_type = "dir"
 
 [apps.chrome]
 name = "Chrome"
@@ -35,7 +33,6 @@ on_exists = "skip"
 source = "<home>/AppData/Local/Google/Chrome"
 target = "Local"
 link_type = "symlink"
-_source_type = "dir"
 
 # === 示例：源级别策略覆盖 ===
 # 取消注释即可使用，on_exists 在 source 级别覆盖应用级别的设置

@@ -10,7 +10,7 @@ mod workspace;
 
 pub use config::{Config, AppConfig, Source};
 pub use fs_utils::{detect_symlink_cycle, FileSystem, FsUtils};
-pub use path_resolver::{PathResolver, register_placeholder, is_known_placeholder};
+pub use path_resolver::PathResolver;
 pub use request_builder::build_link_request;
 pub use workspace::Workspace;
 

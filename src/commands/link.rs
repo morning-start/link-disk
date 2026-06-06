@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 use crate::cli::{Cli, Commands};
 use crate::commands::{load_config, Command};
 use crate::domain::LinkOps;
-use crate::infra::{build_link_request, resolve_apps, resolve_paths, Config, AppConfig, FileSystem, FsUtils};
+use crate::infra::{build_link_request, resolve_apps, Config, AppConfig, FileSystem, FsUtils};
 use spinners::{Spinner, Spinners};
 
 /// Link 命令实现
@@ -75,23 +75,21 @@ fn link_app(
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
-        let (source_path, target_path) = resolve_paths(app_config, source, workspace_path);
+        let (request, source_path, _) = build_link_request(app_config, source, workspace_path, force);
         let source_path_str = source_path.to_string_lossy().to_string();
 
         if verbose {
             println!("  Source: {}", source_path_str);
-            println!("  Target: {}", target_path.display());
+            println!("  Target: {}", request.target.display());
         }
 
         if dry_run {
             println!(
                 "  [DRY RUN] Would link {} -> {}",
-                source_path_str, target_path.display()
+                source_path_str, request.target.display()
             );
             continue;
         }
-
-        let (request, _, _) = build_link_request(app_config, source, workspace_path, force);
 
         let source_name = source
             .source

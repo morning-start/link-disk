@@ -276,12 +276,7 @@ impl FileSystem for FsUtils {
     }
 
     fn create_symlink(&self, target: &Path, link: &Path) -> Result<()> {
-        if link.is_symlink() {
-            std::fs::remove_file(link)
-                .with_context(|| format!("Failed to remove existing symlink: {:?}", link))?;
-        }
-
-        if link.exists() {
+        if link.exists() || link.is_symlink() {
             self.remove_if_exists(link)?;
         }
 

@@ -285,6 +285,13 @@ mod tests {
         assert!(detect_symlink_cycle(&dir).is_none());
     }
 
+    // Windows 上创建符号链接默认需要管理员或开发者模式
+    // （错误码 1314："客户端没有所需的特权"），无特权的 CI 上标记为 ignored，
+    // 拥有权限时执行 `cargo test -- --ignored` 可跑完整链路。
+    #[cfg_attr(
+        windows,
+        ignore = "requires admin or developer mode to create symlinks"
+    )]
     #[test]
     fn test_detect_no_cycle_on_valid_symlink() {
         let temp = TempDir::new().unwrap();
@@ -295,6 +302,10 @@ mod tests {
         assert!(detect_symlink_cycle(&link).is_none());
     }
 
+    #[cfg_attr(
+        windows,
+        ignore = "requires admin or developer mode to create symlinks"
+    )]
     #[test]
     fn test_detect_simple_cycle() {
         let temp = TempDir::new().unwrap();
@@ -305,6 +316,10 @@ mod tests {
         assert!(detect_symlink_cycle(&a).is_some());
     }
 
+    #[cfg_attr(
+        windows,
+        ignore = "requires admin or developer mode to create symlinks"
+    )]
     #[test]
     fn test_detect_three_link_cycle() {
         let temp = TempDir::new().unwrap();
@@ -317,6 +332,10 @@ mod tests {
         assert!(detect_symlink_cycle(&a).is_some());
     }
 
+    #[cfg_attr(
+        windows,
+        ignore = "requires admin or developer mode to create symlinks"
+    )]
     #[test]
     fn test_detect_no_cycle_on_broken_symlink() {
         let temp = TempDir::new().unwrap();

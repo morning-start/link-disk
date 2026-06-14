@@ -17,6 +17,13 @@ fn setup_test_env_empty() -> (TempDir, PathBuf, PathBuf) {
     (temp, source, target)
 }
 
+// 以下测试依赖符号链接创建权限。
+// Windows 上默认需要管理员或开发者模式（错误码 1314），无特权的 CI 上标记为 ignored。
+// 拥有权限时执行 `cargo test -- --ignored` 可跑完整链路。
+#[cfg_attr(
+    windows,
+    ignore = "requires admin or developer mode to create symlinks"
+)]
 #[test]
 fn test_symlink_directory_creation() {
     let (_temp, source, target) = setup_test_env_with_source();
@@ -49,6 +56,10 @@ fn test_symlink_file_creation() {
     );
 }
 
+#[cfg_attr(
+    windows,
+    ignore = "requires admin or developer mode to create symlinks"
+)]
 #[test]
 fn test_symlink_removal() {
     let (_temp, source, target) = setup_test_env_with_source();
@@ -104,6 +115,10 @@ fn test_link_status_target_only() {
     assert_eq!(status, link_disk::domain::LinkStatus::TargetOnly);
 }
 
+#[cfg_attr(
+    windows,
+    ignore = "requires admin or developer mode to create symlinks"
+)]
 #[test]
 fn test_link_status_linked() {
     let (temp, _, _) = setup_test_env_empty();
@@ -124,7 +139,7 @@ fn test_link_status_linked() {
 fn test_path_resolver_expand_home() {
     let result = link_disk::infra::PathResolver::expand_home("~/test");
     let result_str = result.to_string_lossy();
-    assert!(!result_str.contains("~"));
+    assert!(!result_str.contains('~'));
     assert!(result_str.contains("Users") || result_str.contains("home"));
 }
 
@@ -252,6 +267,10 @@ link_type = "symlink"
 
 // === LinkOps 完整流程测试 ===
 
+#[cfg_attr(
+    windows,
+    ignore = "requires admin or developer mode to create symlinks"
+)]
 #[test]
 fn test_link_ops_full_link_and_unlink() {
     use link_disk::domain::{LinkOps, LinkRequest, LinkType, OnExists};
@@ -287,6 +306,10 @@ fn test_link_ops_full_link_and_unlink() {
     assert!(source.join("config.txt").exists());
 }
 
+#[cfg_attr(
+    windows,
+    ignore = "requires admin or developer mode to create symlinks"
+)]
 #[test]
 fn test_link_ops_with_replace_strategy() {
     use link_disk::domain::{LinkOps, LinkRequest, LinkType, OnExists};

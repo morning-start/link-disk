@@ -27,32 +27,30 @@
 
 ### 架构分层
 
+采用经典的**三层架构**（CLI → Domain → Infra），依赖方向单向向下：
+
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      CLI 层                             │
-│            link / unlink / list / status                │
+│              commands 层 (CLI 调度)                      │
+│    init / link / unlink / list / status / repair        │
+│         实现 Command trait，由 dispatch() 统一调度        │
 └──────────────────────┬──────────────────────────────────┘
-                       │
+                       │ 依赖
 ┌──────────────────────▼──────────────────────────────────┐
-│                   Config 层                             │
-│              TOML 配置文件解析与管理                      │
+│              domain 层 (核心业务逻辑)                     │
+│   link_ops(链接操作) · link_status(状态) · file_mover    │
+│   strategies(on_exists 策略) · LinkType/OnExists 枚举   │
 └──────────────────────┬──────────────────────────────────┘
-                       │
+                       │ 依赖
 ┌──────────────────────▼──────────────────────────────────┐
-│                 Workspace 层                            │
-│              工作区路径管理与验证                         │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────┐
-│                 Link Ops 层                             │
-│           链接创建、删除、验证操作                        │
-└──────────────────────┬──────────────────────────────────┘
-                       │
-┌──────────────────────▼──────────────────────────────────┐
-│                  FS Utils 层                            │
-│              文件系统底层操作封装                         │
+│              infra 层 (基础设施)                          │
+│  config(TOML 解析) · workspace(工作区) · path_resolver   │
+│  fs_utils(文件系统操作 FileSystem trait) · request_builder│
 └─────────────────────────────────────────────────────────┘
 ```
+
+**分层约束**：infra 不依赖 domain，domain 不依赖 commands。配置校验通过
+serde 强类型枚举把值域检查前移到反序列化阶段。
 
 ---
 
@@ -98,14 +96,30 @@ cargo clean                  # 清理构建产物
 ```
 link-disk/
 ├── src/
-│   ├── main.rs              # 程序入口
+│   ├── main.rs              # 程序入口、日志初始化
+│   ├── lib.rs               # 公共库导出（供集成测试使用）
 │   ├── cli.rs               # CLI 命令解析层（clap）
-│   ├── config.rs            # TOML 配置解析 + 路径替换
-│   ├── workspace.rs         # 工作区管理器
-│   ├── link_ops.rs          # 链接操作（硬链接/软链接）
-│   ├── path_resolver.rs     # 路径解析 + 环境变量替换
-│   ├── fs_utils.rs          # 文件系统工具
-│   └── error.rs             # 统一错误处理
+│   ├── commands/            # CLI 命令调度与实现
+│   │   ├── mod.rs           #   Command trait + dispatch()
+│   │   ├── init.rs          #   init 命令
+│   │   ├── link.rs          #   link 命令
+│   │   ├── unlink.rs        #   unlink 命令
+│   │   ├── list.rs          #   list 命令
+│   │   ├── status.rs        #   status 命令
+│   │   └── repair.rs        #   repair 命令
+│   ├── domain/              # 核心业务逻辑层
+│   │   ├── mod.rs           #   模块导出
+│   │   ├── link_ops.rs      #   链接创建/删除/验证
+│   │   ├── link_status.rs   #   链接状态枚举与检查
+│   │   ├── file_mover.rs    #   目录合并、文件移回
+│   │   └── strategies.rs    #   on_exists 策略 (OnExists 枚举)
+│   └── infra/               # 基础设施层
+│       ├── mod.rs           #   模块导出
+│       ├── config.rs        #   TOML 配置加载与校验
+│       ├── workspace.rs     #   工作区路径管理
+│       ├── path_resolver.rs #   占位符解析与注册表
+│       ├── fs_utils.rs      #   FileSystem trait + FsUtils 实现
+│       └── request_builder.rs # 应用解析与 LinkRequest 构建
 ├── docs/
 │   ├── architecture.md      # 项目架构文档
 │   ├── workflows.md         # 业务流程和场景图
@@ -115,6 +129,7 @@ link-disk/
 │   └── integration_tests.rs # 集成测试
 ├── Cargo.toml               # 项目配置
 ├── config-example.toml      # 配置示例文件
+├── config-default.toml      # init 默认配置模板
 └── AGENTS.md                # 本文件
 ```
 
@@ -123,12 +138,17 @@ link-disk/
 | 模块 | 职责 | 关键类型 |
 |------|------|---------|
 | `cli.rs` | 命令行参数解析 | `Cli`, `Commands` |
-| `config.rs` | TOML 配置加载和验证 | `AppConfig`, `Source` |
-| `workspace.rs` | 工作区路径管理 | `Workspace` |
-| `link_ops.rs` | 链接创建/删除/验证 | `LinkOp`, `LinkType` |
-| `path_resolver.rs` | 环境变量替换 | `PathResolver` |
-| `fs_utils.rs` | 文件系统操作封装 | - |
-| `error.rs` | 错误类型定义 | `LinkDiskError` |
+| `commands/mod.rs` | 命令调度入口 | `Command` trait, `dispatch()` |
+| `commands/*.rs` | 各子命令实现 | `LinkCommand`, `InitCommand` 等 |
+| `domain/link_ops.rs` | 链接创建/删除/验证 | `LinkOps`, `LinkRequest`, `LinkType` |
+| `domain/strategies.rs` | on_exists 策略 | `OnExists`, `OnExistsAction` |
+| `domain/file_mover.rs` | 目录合并、文件移回 | - |
+| `domain/link_status.rs` | 链接状态检查 | `LinkStatus`, `LinkStatusChecker` |
+| `infra/config.rs` | TOML 配置加载与校验 | `Config`, `AppConfig`, `Source` |
+| `infra/workspace.rs` | 工作区路径管理 | `Workspace` |
+| `infra/path_resolver.rs` | 占位符解析与注册 | `PathResolver`, `placeholders::*` |
+| `infra/fs_utils.rs` | 文件系统操作封装 | `FileSystem` trait, `FsUtils` |
+| `infra/request_builder.rs` | 应用解析与请求构建 | `build_link_request`, `resolve_apps` |
 
 ---
 
@@ -147,45 +167,53 @@ link-disk/
 
 ### 错误处理
 
-```rust
-// 使用自定义错误类型
-pub enum LinkDiskError {
-    IoError(std::io::Error),
-    ConfigError(String),
-    PathError(String),
-    LinkError(String),
-}
+使用 `anyhow::Result` 统一错误传播，配合 `with_context` 添加上下文：
 
-// 通过 ? 操作符传播
-fn example() -> Result<(), LinkDiskError> {
-    let config = load_config()?;  // ? 自动转换
-    Ok(())
+```rust
+use anyhow::{Context, Result};
+
+// 通过 ? 操作符传播，自动转换错误类型
+fn load_config(path: &Path) -> Result<Config> {
+    let content = std::fs::read_to_string(path)
+        .with_context(|| format!("Failed to read config file: {:?}", path))?;
+    let config: Config = toml::from_str(&content).context("Failed to parse config file")?;
+    Ok(config)
 }
 ```
 
 ### 路径处理
 
 **关键规则：**
-- Windows 路径使用正斜杠 `/`（Rust 会自动处理）
+- Windows 路径使用正斜杠 `/`（`Path::join` 在各平台都会正确处理）
 - 使用 `std::path::Path` 和 `std::path::PathBuf` 而非字符串拼接
-- 环境变量替换：`<home>` → 用户目录，`<localappdata>` → 本地应用数据
+- **不手动替换分隔符**：交给 `Path`/`PathBuf` 处理，避免破坏 Unix 兼容性
+- 占位符替换：`<home>` → 用户目录，`<localappdata>` → 本地应用数据
 
 ```rust
-// 正确示例
-let path = PathBuf::from("<home>/AppData/Roaming");
-let resolved = path_resolver.resolve(&path)?;
+// 正确：展开占位符后由 Path 处理分隔符
+let expanded = PathResolver::expand("<home>/AppData/Roaming");
+let path = PathBuf::from(expanded);
 
-// 错误示例
-let path = "<home>\\AppData\\Roaming".to_string();  // 使用反斜杠
+// 错误：手动 replace("/", "\\") 会破坏 Unix 兼容性
+let path = expanded.replace("/", "\\");
 ```
 
 ### 配置解析
 
+`link_type` / `on_exists` 字段直接反序列化为强类型枚举（`LinkType` / `OnExists`），
+值域校验前移到反序列化阶段，无需在 `validate()` 中再做字符串 match：
+
 ```rust
-// 使用 serde 反序列化 TOML
+use serde::Deserialize;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OnExists { Skip, Merge, Preserve, Replace }
+
 #[derive(Deserialize)]
 struct Config {
-    workspace: WorkspaceConfig,
+    workspace: Workspace,
+    #[serde(default)]
     apps: HashMap<String, AppConfig>,
 }
 ```
@@ -303,10 +331,11 @@ link_type = "symlink"  # symlink | hardlink
 
 ### 添加新命令
 
-1. 在 `cli.rs` 中定义新的 `clap` 子命令
-2. 在 `main.rs` 中添加命令处理逻辑
-3. 在对应模块实现业务逻辑
-4. 添加集成测试
+1. 在 `cli.rs` 的 `Commands` 枚举中添加新的 `clap` 子命令变体
+2. 在 `commands/` 下新建模块，实现 `Command` trait（如 `pub struct XxxCommand`）
+3. 在 `commands/mod.rs` 的 `dispatch()` 中添加对应的 match 分支
+4. 在 `domain/`（业务逻辑）或 `infra/`（基础设施）中实现底层能力
+5. 添加集成测试
 
 ### 发布新版本
 

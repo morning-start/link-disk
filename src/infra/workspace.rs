@@ -43,9 +43,9 @@ impl Workspace {
             let workspace_path_str = path.to_string_lossy().replace("\\", "/");
             let default_config = Self::DEFAULT_CONFIG_TEMPLATE.replace("{}", &workspace_path_str);
             std::fs::write(&config_file, default_config).with_context(|| {
-                format!("Failed to create default config file: {:?}", config_file)
+                format!("Failed to create default config file: {config_file:?}")
             })?;
-            set_config_file_permissions(&config_file)?;
+            set_config_file_permissions(&config_file);
         }
 
         Ok(std::path::PathBuf::from(path))
@@ -75,18 +75,18 @@ impl Workspace {
             let workspace_path_str = path.to_string_lossy().replace("\\", "/");
             let config_content = template.replace("{}", &workspace_path_str);
             std::fs::write(&config_file, config_content).with_context(|| {
-                format!(
-                    "Failed to create config file with custom template: {:?}",
-                    config_file
-                )
+                format!("Failed to create config file with custom template: {config_file:?}")
             })?;
-            set_config_file_permissions(&config_file)?;
+            set_config_file_permissions(&config_file);
         }
 
         Ok(std::path::PathBuf::from(path))
     }
 
     /// 获取配置文件所在目录（~/.link-disk）
+    ///
+    /// # Errors
+    /// 当无法获取用户主目录时返回错误（例如 `HOME` 环境变量未设置）。
     pub fn config_dir() -> Result<PathBuf> {
         let home = dirs::home_dir().context("Failed to get home directory")?;
 
@@ -94,6 +94,9 @@ impl Workspace {
     }
 
     /// 获取配置文件的完整路径（~/.link-disk/config.toml）
+    ///
+    /// # Errors
+    /// 当无法获取用户主目录时返回错误（见 [`Self::config_dir`]）。
     pub fn config_path() -> Result<PathBuf> {
         Ok(Self::config_dir()?.join("config.toml"))
     }
@@ -102,26 +105,27 @@ impl Workspace {
     ///
     /// 不手动替换分隔符：`Path::join` 在各平台都能正确处理 `/` 和 `\`，
     /// 输出时使用平台原生分隔符。手动替换会破坏 Unix 兼容性。
+    #[must_use]
     pub fn resolve_target(workspace: &Path, relative: &str) -> PathBuf {
         workspace.join(relative)
     }
 }
 
 /// 设置配置文件权限为仅当前用户可读写（Unix: 0o600）
-fn set_config_file_permissions(path: &Path) -> Result<()> {
+///
+/// 非 Unix 平台（如 Windows）当前不调整权限位。
+fn set_config_file_permissions(path: &Path) {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let metadata = std::fs::metadata(path)
-            .with_context(|| format!("Failed to read metadata: {:?}", path))?;
-        let mut perms = metadata.permissions();
-        perms.set_mode(0o600);
-        std::fs::set_permissions(path, perms)
-            .with_context(|| format!("Failed to set permissions: {:?}", path))?;
+        if let Ok(metadata) = std::fs::metadata(path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = std::fs::set_permissions(path, perms);
+        }
     }
     #[cfg(not(unix))]
     {
         let _ = path;
     }
-    Ok(())
 }

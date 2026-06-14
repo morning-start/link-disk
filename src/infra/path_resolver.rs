@@ -36,6 +36,22 @@ pub mod placeholders {
     pub const TEMP: &str = "<temp>";
     pub const PROGRAM_FILES: &str = "<programfiles>";
     pub const PROGRAM_FILES_X86: &str = "<programfilesx86>";
+
+    /// 所有内置占位符列表（单一数据源，避免多处重复定义）
+    ///
+    /// `is_known_placeholder` 和 `register_placeholder` 共享此列表，
+    /// 新增内置占位符时只需在此处加一行。
+    pub const BUILT_IN: &[&str] = &[
+        HOME,
+        APPDATA,
+        LOCALAPPDATA,
+        DOCUMENTS,
+        DESKTOP,
+        DOWNLOADS,
+        TEMP,
+        PROGRAM_FILES,
+        PROGRAM_FILES_X86,
+    ];
 }
 
 /// 占位符解析器类型：返回 `Option<String>`
@@ -99,19 +115,7 @@ static PLACEHOLDER_REGISTRY: LazyLock<RwLock<HashMap<String, PlaceholderResolver
 
 /// 检查占位符是否已注册（含内置和运行时注册）
 pub fn is_known_placeholder(placeholder: &str) -> bool {
-    let built_in = [
-        placeholders::HOME,
-        placeholders::APPDATA,
-        placeholders::LOCALAPPDATA,
-        placeholders::DOCUMENTS,
-        placeholders::DESKTOP,
-        placeholders::DOWNLOADS,
-        placeholders::TEMP,
-        placeholders::PROGRAM_FILES,
-        placeholders::PROGRAM_FILES_X86,
-    ];
-
-    if built_in.contains(&placeholder) {
+    if placeholders::BUILT_IN.contains(&placeholder) {
         return true;
     }
 
@@ -136,19 +140,7 @@ pub fn register_placeholder(
     key: &str,
     resolver: Box<dyn Fn() -> Option<String> + Send + Sync>,
 ) -> Result<(), String> {
-    let built_in = [
-        placeholders::HOME,
-        placeholders::APPDATA,
-        placeholders::LOCALAPPDATA,
-        placeholders::DOCUMENTS,
-        placeholders::DESKTOP,
-        placeholders::DOWNLOADS,
-        placeholders::TEMP,
-        placeholders::PROGRAM_FILES,
-        placeholders::PROGRAM_FILES_X86,
-    ];
-
-    if built_in.contains(&key) {
+    if placeholders::BUILT_IN.contains(&key) {
         return Err(format!("Cannot override built-in placeholder '{}'", key));
     }
 
@@ -196,18 +188,47 @@ impl PathResolver {
     ///
     /// 不替换路径分隔符：`PathBuf`/`Path` 在各平台都能正确处理 `/` 和 `\`，
     /// 手动转 `\` 会破坏 Unix 兼容性，也违背"统一正斜杠"的路径处理原则。
+    ///
+    /// # 实现
+    ///
+    /// 不对整个注册表做 `O(N)` 全表 `contains` 扫描，而是先扫描输入字符串
+    /// 提取其中实际出现的 `<...>` 占位符（去重），仅对命中的占位符查注册表。
+    /// 路径中通常只含 0~2 个占位符，但注册表可能含数十项，此优化避免无谓的
+    /// 反复字符串搜索与 resolver 闭包调用。
     fn replace_placeholders(input: &str) -> String {
-        let mut result = input.to_string();
+        // 第一遍：提取输入中实际出现的占位符（按出现顺序去重）
+        // 不对整个注册表做 O(N) 全表 contains 扫描，仅命中实际出现的 <...>。
+        let mut hits: Vec<&str> = Vec::new();
+        let mut rest = input;
+        while let Some(open) = rest.find('<') {
+            let after_open = &rest[open + 1..];
+            match after_open.find('>') {
+                Some(close) => {
+                    let candidate = &rest[open..open + 1 + close + 1]; // 含 '<' 和 '>'
+                    if !hits.contains(&candidate) {
+                        hits.push(candidate);
+                    }
+                    rest = &after_open[close + 1..];
+                }
+                None => break,
+            }
+        }
 
+        if hits.is_empty() {
+            return input.to_string();
+        }
+
+        // 第二遍：仅对命中占位符查注册表并替换
         let registry = PLACEHOLDER_REGISTRY
             .read()
             .expect("Placeholder registry lock poisoned");
 
-        for (placeholder, resolver) in registry.iter() {
-            if result.contains(placeholder.as_str())
+        let mut result = input.to_string();
+        for placeholder in hits {
+            if let Some(resolver) = registry.get(placeholder)
                 && let Some(value) = resolver()
             {
-                result = result.replace(placeholder.as_str(), &value);
+                result = result.replace(placeholder, &value);
             }
         }
 
@@ -278,5 +299,28 @@ mod tests {
     #[test]
     fn test_is_known_placeholder_unknown() {
         assert!(!is_known_placeholder("<nonexistent>"));
+    }
+
+    // === replace_placeholders 扫描优化回归测试 ===
+
+    #[test]
+    fn test_no_placeholder_returns_input_as_is() {
+        let result = PathResolver::expand("C:/plain/path");
+        assert_eq!(result, "C:/plain/path");
+    }
+
+    #[test]
+    fn test_repeated_placeholder_all_replaced() {
+        register_placeholder("<rep>", Box::new(|| Some("X".into()))).unwrap();
+        let result = PathResolver::expand("<rep>/<rep>/<rep>");
+        assert_eq!(result, "X/X/X");
+    }
+
+    #[test]
+    fn test_unknown_placeholder_preserved() {
+        let result = PathResolver::expand("<home>/<definitely_unknown_xyz>");
+        // <home> 被展开，未注册的占位符保持原样
+        assert!(!result.contains("<home>"));
+        assert!(result.contains("<definitely_unknown_xyz>"));
     }
 }

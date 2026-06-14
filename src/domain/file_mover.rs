@@ -48,6 +48,14 @@ pub fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<(
             } else if !dst_path.exists() {
                 std::fs::copy(&src_path, &dst_path)
                     .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
+            } else {
+                // dst 已存在：保留 target 现有版本，跳过 source 中的同名文件。
+                // 这是 merge 策略的安全默认行为（不覆盖既有数据），
+                // 但需明确提示，避免用户误以为 source 全部内容都已合并。
+                tracing::warn!(
+                    "Merge skipped conflicting file (target retained): {}",
+                    src_path.display()
+                );
             }
         }
     }

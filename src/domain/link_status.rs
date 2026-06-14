@@ -23,7 +23,7 @@ pub enum LinkStatus {
 
 impl LinkStatus {
     /// 获取状态的字符串表示
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Linked => "linked",
             Self::Broken => "broken",

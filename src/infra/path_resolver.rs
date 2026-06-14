@@ -274,7 +274,7 @@ mod tests {
         register_placeholder("<a>", Box::new(|| Some("A".into()))).unwrap();
         register_placeholder("<b>", Box::new(|| Some("B".into()))).unwrap();
         let result = PathResolver::expand("<a>/<b>");
-        assert!(result.contains("A") && result.contains("B"));
+        assert!(result.contains('A') && result.contains('B'));
     }
 
     #[test]

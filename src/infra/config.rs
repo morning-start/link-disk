@@ -84,6 +84,7 @@ fn default_enabled() -> bool {
 
 /// 源文件/目录配置
 #[derive(Debug, Clone, Deserialize)]
+#[allow(clippy::struct_field_names)]
 pub struct Source {
     /// 源路径（支持占位符如 <home>、<appdata> 等）
     pub source: String,
@@ -357,8 +358,8 @@ mod tests {
         let err = check_placeholders("<unknown>/test")
             .unwrap_err()
             .to_string();
-        assert!(err.contains("Unknown placeholder"), "Got: {}", err);
-        assert!(err.contains("<unknown>"), "Got: {}", err);
+        assert!(err.contains("Unknown placeholder"), "Got: {err}");
+        assert!(err.contains("<unknown>"), "Got: {err}");
     }
 
     #[test]

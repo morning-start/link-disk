@@ -1,6 +1,6 @@
+use link_disk::infra::{FileSystem, FsUtils};
 use std::path::PathBuf;
 use tempfile::TempDir;
-use link_disk::infra::{FsUtils, FileSystem};
 
 fn setup_test_env_with_source() -> (TempDir, PathBuf, PathBuf) {
     let temp = TempDir::new().unwrap();
@@ -43,7 +43,10 @@ fn test_symlink_file_creation() {
 
     assert!(target_file.exists());
     assert!(!target_file.is_symlink());
-    assert_eq!(std::fs::read_to_string(&target_file).unwrap(), "test content");
+    assert_eq!(
+        std::fs::read_to_string(&target_file).unwrap(),
+        "test content"
+    );
 }
 
 #[test]
@@ -106,7 +109,7 @@ fn test_link_status_linked() {
     let (temp, _, _) = setup_test_env_empty();
     let target = temp.path().join("target");
     let source = temp.path().join("source");
-    
+
     std::fs::create_dir_all(&target).unwrap();
 
     let fs = FsUtils;
@@ -274,7 +277,11 @@ fn test_link_ops_full_link_and_unlink() {
     assert!(target.join("config.txt").exists());
 
     let unlink_result = LinkOps::unlink_with_fs(&source, &target, false, &fs);
-    assert!(unlink_result.is_ok(), "Unlink failed: {:?}", unlink_result.err());
+    assert!(
+        unlink_result.is_ok(),
+        "Unlink failed: {:?}",
+        unlink_result.err()
+    );
     // keep_files=false: 文件移回 source, target 被删除
     assert!(!target.exists());
     assert!(source.join("config.txt").exists());
@@ -311,8 +318,8 @@ fn test_link_ops_with_replace_strategy() {
 
 #[test]
 fn test_build_link_request_source_level_on_exists_priority() {
-    use link_disk::infra::build_link_request;
     use link_disk::domain::OnExists;
+    use link_disk::infra::build_link_request;
 
     let temp = TempDir::new().unwrap();
     let workspace_path = temp.path().join("workspace");
@@ -321,13 +328,12 @@ fn test_build_link_request_source_level_on_exists_priority() {
     let app = link_disk::infra::AppConfig {
         name: "test-app".into(),
         enabled: true,
-        on_exists: Some("skip".into()),
+        on_exists: Some(OnExists::Skip),
         sources: vec![link_disk::infra::Source {
             source: "<home>/Test".into(),
             target: "app/data".into(),
-            link_type: "symlink".into(),
-            on_exists: Some("replace".into()),
-            _source_type: "dir".into(),
+            link_type: link_disk::domain::LinkType::Symlink,
+            on_exists: Some(OnExists::Replace),
         }],
     };
 
@@ -337,8 +343,8 @@ fn test_build_link_request_source_level_on_exists_priority() {
 
 #[test]
 fn test_build_link_request_falls_back_to_app_level() {
-    use link_disk::infra::build_link_request;
     use link_disk::domain::OnExists;
+    use link_disk::infra::build_link_request;
 
     let temp = TempDir::new().unwrap();
     let workspace_path = temp.path().join("workspace");
@@ -347,13 +353,12 @@ fn test_build_link_request_falls_back_to_app_level() {
     let app = link_disk::infra::AppConfig {
         name: "test-app".into(),
         enabled: true,
-        on_exists: Some("merge".into()),
+        on_exists: Some(OnExists::Merge),
         sources: vec![link_disk::infra::Source {
             source: "<home>/Test".into(),
             target: "app/data".into(),
-            link_type: "symlink".into(),
+            link_type: link_disk::domain::LinkType::Symlink,
             on_exists: None,
-            _source_type: "dir".into(),
         }],
     };
 

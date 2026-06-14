@@ -26,17 +26,22 @@
 //! ```
 
 use anyhow::{Context, Result};
+use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use tracing::{info, debug};
+use tracing::{debug, info};
 
-use crate::infra::FileSystem;
-use crate::infra::detect_symlink_cycle;
 use super::link_status::{LinkStatus, LinkStatusChecker};
 use super::strategies::{OnExists, OnExistsAction};
+use crate::infra::FileSystem;
+use crate::infra::detect_symlink_cycle;
 
 /// 链接类型枚举
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// 使用 `#[serde(rename_all = "lowercase")]` 让 TOML 中可直接用小写字符串
+/// 反序列化为强类型枚举，把校验前移到反序列化阶段。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum LinkType {
     /// 符号链接（软链接）
     Symlink,
@@ -53,13 +58,6 @@ impl FromStr for LinkType {
             "symlink" => Ok(LinkType::Symlink),
             _ => Err(format!("Unknown link type: {}", s)),
         }
-    }
-}
-
-impl LinkType {
-    /// 宽松解析：解析失败时默认为 Symlink
-    pub fn from_str_lossy(s: &str) -> Self {
-        <Self as FromStr>::from_str(s).unwrap_or(LinkType::Symlink)
     }
 }
 
@@ -173,8 +171,7 @@ impl LinkOps {
         fs: &dyn FileSystem,
         verbose: bool,
     ) -> Result<()> {
-        let strategy = on_exists.strategy();
-        match strategy.execute(source, target, fs, verbose)? {
+        match on_exists.execute(source, target, fs, verbose)? {
             OnExistsAction::Skip => {
                 anyhow::bail!(
                     "Target already exists and on_exists strategy is 'skip'. \
@@ -214,7 +211,9 @@ impl LinkOps {
         fs: &dyn FileSystem,
         verbose: bool,
     ) -> Result<bool> {
-        if !source.is_symlink() { return Ok(false); }
+        if !source.is_symlink() {
+            return Ok(false);
+        }
 
         if force {
             if verbose {
@@ -229,7 +228,11 @@ impl LinkOps {
             let normalized_target = fs.normalize_path(target);
             if normalized_linked == normalized_target {
                 if verbose {
-                    info!("Already linked: {} -> {}", source.display(), target_path.display());
+                    info!(
+                        "Already linked: {} -> {}",
+                        source.display(),
+                        target_path.display()
+                    );
                 }
                 return Ok(true);
             }
@@ -263,27 +266,44 @@ impl LinkOps {
                     );
                 }
                 if verbose {
-                    info!("Creating symlink: {} -> {}", source.display(), target.display());
+                    info!(
+                        "Creating symlink: {} -> {}",
+                        source.display(),
+                        target.display()
+                    );
                 }
                 fs.create_symlink(target, source)?;
             }
             LinkType::Hardlink => {
                 if verbose {
-                    info!("Creating hardlink: {} -> {}", source.display(), target.display());
+                    info!(
+                        "Creating hardlink: {} -> {}",
+                        source.display(),
+                        target.display()
+                    );
                 }
                 fs.hard_link(target, source)?;
             }
         }
 
         if verbose {
-            info!("Successfully linked: {} -> {}", source.display(), target.display());
+            info!(
+                "Successfully linked: {} -> {}",
+                source.display(),
+                target.display()
+            );
         }
 
         Ok(())
     }
 
     /// 删除链接：移除源位置的链接，可选择将目标位置的文件移回源位置
-    pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem) -> Result<()> {
+    pub fn unlink_with_fs(
+        source: &Path,
+        target: &Path,
+        keep_files: bool,
+        fs: &dyn FileSystem,
+    ) -> Result<()> {
         debug!("Unlinking: {} -> {}", source.display(), target.display());
         debug!("Keep files: {}", keep_files);
 
@@ -299,7 +319,11 @@ impl LinkOps {
             Self::move_back(target, source, fs)?;
         }
 
-        debug!("Successfully unlinked: {} -> {}", source.display(), target.display());
+        debug!(
+            "Successfully unlinked: {} -> {}",
+            source.display(),
+            target.display()
+        );
         Ok(())
     }
 

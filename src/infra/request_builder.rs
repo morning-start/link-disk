@@ -6,9 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
+use crate::domain::LinkRequest;
 use crate::infra::{AppConfig, Config, Source};
 use crate::infra::{PathResolver, Workspace};
-use crate::domain::{LinkRequest, LinkType, OnExists};
 
 /// 解析需要处理的应用列表
 ///
@@ -66,14 +66,16 @@ pub fn build_link_request(
 ) -> (LinkRequest, PathBuf, PathBuf) {
     let (source_path, target_path) = resolve_source_target(app_config, source, workspace_path);
 
-    let on_exists = source.on_exists.as_ref()
-        .map(|s| OnExists::from_str_lossy(s))
-        .unwrap_or_else(|| OnExists::from_str_lossy(app_config.on_exists_strategy()));
+    // 源级别 on_exists 优先；否则回退应用级别；都未设置则使用默认 Skip
+    let on_exists = source
+        .on_exists
+        .or(app_config.on_exists)
+        .unwrap_or_default();
 
     let request = LinkRequest {
         source: source_path.clone(),
         target: target_path.clone(),
-        link_type: LinkType::from_str_lossy(&source.link_type),
+        link_type: source.link_type,
         on_exists,
         force,
     };

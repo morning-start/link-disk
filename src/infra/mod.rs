@@ -8,8 +8,8 @@ mod path_resolver;
 mod request_builder;
 mod workspace;
 
-pub use config::{Config, AppConfig, Source};
-pub use fs_utils::{detect_symlink_cycle, FileSystem, FsUtils};
+pub use config::{AppConfig, Config, Source};
+pub use fs_utils::{FileSystem, FsUtils, detect_symlink_cycle};
 pub use path_resolver::PathResolver;
 pub use request_builder::build_link_request;
 pub use workspace::Workspace;
@@ -21,9 +21,3 @@ pub use request_builder::{resolve_apps, resolve_paths};
 #[doc(hidden)]
 #[allow(unused_imports)]
 pub use config::Workspace as ConfigWorkspace;
-#[doc(hidden)]
-#[allow(unused_imports)]
-pub use config::constants as config_constants;
-#[doc(hidden)]
-#[allow(unused_imports)]
-pub use config::strategy_constants;

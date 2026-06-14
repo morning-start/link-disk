@@ -149,10 +149,7 @@ pub fn register_placeholder(
     ];
 
     if built_in.contains(&key) {
-        return Err(format!(
-            "Cannot override built-in placeholder '{}'",
-            key
-        ));
+        return Err(format!("Cannot override built-in placeholder '{}'", key));
     }
 
     let mut registry = PLACEHOLDER_REGISTRY
@@ -196,6 +193,9 @@ impl PathResolver {
     ///
     /// 通过遍历注册表实现，符合开放封闭原则：
     /// 添加新占位符只需在注册表中添加条目，无需修改此方法。
+    ///
+    /// 不替换路径分隔符：`PathBuf`/`Path` 在各平台都能正确处理 `/` 和 `\`，
+    /// 手动转 `\` 会破坏 Unix 兼容性，也违背"统一正斜杠"的路径处理原则。
     fn replace_placeholders(input: &str) -> String {
         let mut result = input.to_string();
 
@@ -211,8 +211,7 @@ impl PathResolver {
             }
         }
 
-        // 将正斜杠转换为反斜杠（Windows 路径格式）
-        result.replace("/", "\\")
+        result
     }
 }
 
@@ -230,7 +229,9 @@ mod tests {
     fn test_register_custom_placeholder() {
         register_placeholder("<custom>", Box::new(|| Some("C:/custom/path".into()))).unwrap();
         let result = PathResolver::expand("<custom>/data");
-        assert!(result.contains("C:\\custom\\path\\data") || result.contains("C:/custom/path/data"));
+        assert!(
+            result.contains("C:\\custom\\path\\data") || result.contains("C:/custom/path/data")
+        );
     }
 
     #[test]

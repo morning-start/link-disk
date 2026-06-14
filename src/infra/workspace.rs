@@ -75,7 +75,10 @@ impl Workspace {
             let workspace_path_str = path.to_string_lossy().replace("\\", "/");
             let config_content = template.replace("{}", &workspace_path_str);
             std::fs::write(&config_file, config_content).with_context(|| {
-                format!("Failed to create config file with custom template: {:?}", config_file)
+                format!(
+                    "Failed to create config file with custom template: {:?}",
+                    config_file
+                )
             })?;
             set_config_file_permissions(&config_file)?;
         }
@@ -96,9 +99,11 @@ impl Workspace {
     }
 
     /// 解析目标路径：将相对路径与工作区路径拼接为绝对路径
+    ///
+    /// 不手动替换分隔符：`Path::join` 在各平台都能正确处理 `/` 和 `\`，
+    /// 输出时使用平台原生分隔符。手动替换会破坏 Unix 兼容性。
     pub fn resolve_target(workspace: &Path, relative: &str) -> PathBuf {
-        let normalized = relative.replace("/", "\\");
-        workspace.join(&normalized)
+        workspace.join(relative)
     }
 }
 

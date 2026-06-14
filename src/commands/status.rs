@@ -18,7 +18,7 @@ impl Command for StatusCommand {
             _ => unreachable!(),
         };
 
-        let config = load_config(&cli.config)?;
+        let config = load_config(cli.config.as_ref())?;
         handle_status(&config, apps);
         Ok(())
     }

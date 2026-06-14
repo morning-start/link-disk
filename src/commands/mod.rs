@@ -43,7 +43,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
 }
 
 /// 加载并校验配置文件（共享给各命令使用）
-pub fn load_config(config_path: &Option<String>) -> Result<Config> {
+pub fn load_config(config_path: Option<&String>) -> Result<Config> {
     let path = match config_path {
         Some(p) => PathResolver::expand_home(p),
         None => Workspace::config_path()?,

@@ -29,7 +29,7 @@ impl Command for UnlinkCommand {
             return Ok(());
         }
 
-        let config = load_config(&cli.config)?;
+        let config = load_config(cli.config.as_ref())?;
         handle_unlink(&config, apps, all, keep_files, cli.verbose)
     }
 }

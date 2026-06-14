@@ -17,7 +17,7 @@ impl Command for RepairCommand {
             _ => unreachable!(),
         };
 
-        let config = load_config(&cli.config)?;
+        let config = load_config(cli.config.as_ref())?;
         handle_repair(&config, apps, all, force, cli.verbose)
     }
 }

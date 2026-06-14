@@ -15,14 +15,14 @@ impl Command for ListCommand {
             _ => unreachable!(),
         };
 
-        let config = load_config(&cli.config)?;
-        handle_list(&config, app);
+        let config = load_config(cli.config.as_ref())?;
+        handle_list(&config, app.as_ref());
         Ok(())
     }
 }
 
 /// 处理 list 命令：列出应用的链接配置
-pub fn handle_list(config: &Config, app: &Option<String>) {
+pub fn handle_list(config: &Config, app: Option<&String>) {
     match app {
         Some(app_id) => {
             if let Some(app_config) = config.get_app(app_id) {

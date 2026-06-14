@@ -23,7 +23,7 @@ impl Command for LinkCommand {
             _ => unreachable!(),
         };
 
-        let config = load_config(&cli.config)?;
+        let config = load_config(cli.config.as_ref())?;
         handle_link(&config, apps, all, dry_run, force, cli.verbose)
     }
 }

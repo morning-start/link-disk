@@ -3,9 +3,9 @@
 use anyhow::{Context, Result};
 
 use crate::cli::{Cli, Commands};
-use crate::commands::{load_config, Command};
+use crate::commands::{Command, load_config};
 use crate::domain::LinkOps;
-use crate::infra::{build_link_request, resolve_apps, Config, AppConfig, FileSystem, FsUtils};
+use crate::infra::{AppConfig, Config, FileSystem, FsUtils, build_link_request, resolve_apps};
 use spinners::{Spinner, Spinners};
 
 /// Link 命令实现
@@ -14,7 +14,12 @@ pub struct LinkCommand;
 impl Command for LinkCommand {
     fn execute(&self, cli: &Cli) -> Result<()> {
         let (apps, all, dry_run, force) = match &cli.command {
-            Commands::Link { apps, all, dry_run, force } => (apps, *all, *dry_run, *force),
+            Commands::Link {
+                apps,
+                all,
+                dry_run,
+                force,
+            } => (apps, *all, *dry_run, *force),
             _ => unreachable!(),
         };
 
@@ -34,7 +39,7 @@ pub fn handle_link(
 ) -> Result<()> {
     let workspace_path = &config.workspace.path;
     let fs = FsUtils;
-    
+
     if !workspace_path.exists() {
         if verbose {
             println!("Creating workspace directory: {}", workspace_path.display());
@@ -75,7 +80,8 @@ fn link_app(
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
-        let (request, source_path, _) = build_link_request(app_config, source, workspace_path, force);
+        let (request, source_path, _) =
+            build_link_request(app_config, source, workspace_path, force);
         let source_path_str = source_path.to_string_lossy().to_string();
 
         if verbose {
@@ -86,7 +92,8 @@ fn link_app(
         if dry_run {
             println!(
                 "  [DRY RUN] Would link {} -> {}",
-                source_path_str, request.target.display()
+                source_path_str,
+                request.target.display()
             );
             continue;
         }

@@ -3,9 +3,11 @@
 use anyhow::{Context, Result};
 
 use crate::cli::{Cli, Commands};
-use crate::commands::{load_config, Command};
+use crate::commands::{Command, load_config};
 use crate::domain::LinkOps;
-use crate::infra::{resolve_apps, resolve_paths, Config, FsUtils, FileSystem, PathResolver, AppConfig};
+use crate::infra::{
+    AppConfig, Config, FileSystem, FsUtils, PathResolver, resolve_apps, resolve_paths,
+};
 
 /// Unlink 命令实现
 pub struct UnlinkCommand;
@@ -13,7 +15,12 @@ pub struct UnlinkCommand;
 impl Command for UnlinkCommand {
     fn execute(&self, cli: &Cli) -> Result<()> {
         let (apps, all, force, keep_files) = match &cli.command {
-            Commands::Unlink { apps, all, force, keep_files } => (apps, *all, *force, *keep_files),
+            Commands::Unlink {
+                apps,
+                all,
+                force,
+                keep_files,
+            } => (apps, *all, *force, *keep_files),
             _ => unreachable!(),
         };
 

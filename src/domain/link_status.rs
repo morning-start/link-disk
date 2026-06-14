@@ -49,7 +49,11 @@ impl LinkStatusChecker {
     /// 链接状态枚举值
     pub fn check(source: &Path, target: &Path) -> LinkStatus {
         if source.is_symlink() {
-            if target.exists() { LinkStatus::Linked } else { LinkStatus::Broken }
+            if target.exists() {
+                LinkStatus::Linked
+            } else {
+                LinkStatus::Broken
+            }
         } else if source.exists() {
             if target.exists() {
                 LinkStatus::BothExist

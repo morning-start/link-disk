@@ -19,7 +19,7 @@ use tracing_subscriber::EnvFilter;
 fn main() {
     let cli = Cli::parse();
     setup_logging(cli.verbose);
-    
+
     if let Err(e) = run(cli) {
         eprintln!("Error: {}", e);
         std::process::exit(1);
@@ -34,9 +34,7 @@ fn setup_logging(verbose: bool) {
         EnvFilter::new("link_disk=info")
     };
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .init();
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 }
 
 /// 主运行函数：将命令分发给注册表中的 Command 实现

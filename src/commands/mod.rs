@@ -5,10 +5,10 @@
 
 pub mod init;
 pub mod link;
-pub mod unlink;
 pub mod list;
-pub mod status;
 pub mod repair;
+pub mod status;
+pub mod unlink;
 
 use crate::cli::{Cli, Commands};
 use crate::infra::{Config, PathResolver, Workspace};

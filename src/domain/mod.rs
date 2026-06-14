@@ -2,9 +2,9 @@
 //!
 //! 包含链接操作、状态检查、文件移动、策略定义等核心业务逻辑。
 
+mod file_mover;
 mod link_ops;
 mod link_status;
-mod file_mover;
 mod strategies;
 
 pub use link_ops::{LinkOps, LinkRequest, LinkType};

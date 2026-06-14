@@ -1,10 +1,10 @@
 //! 状态检查命令处理
 
 use crate::cli::{Cli, Commands};
-use crate::commands::{load_config, Command};
-use crate::infra::{Config, AppConfig};
+use crate::commands::{Command, load_config};
 use crate::domain::{LinkOps, LinkStatus};
 use crate::infra::resolve_paths;
+use crate::infra::{AppConfig, Config};
 use anyhow::Result;
 use std::path::Path;
 
@@ -39,10 +39,7 @@ pub fn handle_status(config: &Config, apps: &[String]) {
 }
 
 /// 检查应用的所有链接状态
-fn check_app_status(
-    app_config: &AppConfig,
-    workspace_path: &Path,
-) {
+fn check_app_status(app_config: &AppConfig, workspace_path: &Path) {
     println!("App: {}", app_config.name);
 
     for source in &app_config.sources {
@@ -56,6 +53,11 @@ fn check_app_status(
             _ => "?",
         };
 
-        println!("  {} {} -> {}", status_icon, source_display, status.as_str());
+        println!(
+            "  {} {} -> {}",
+            status_icon,
+            source_display,
+            status.as_str()
+        );
     }
 }

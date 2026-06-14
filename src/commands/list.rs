@@ -1,7 +1,7 @@
 //! 列表命令处理
 
 use crate::cli::{Cli, Commands};
-use crate::commands::{load_config, Command};
+use crate::commands::{Command, load_config};
 use crate::infra::{AppConfig, Config};
 use anyhow::Result;
 

@@ -3,9 +3,9 @@
 use anyhow::Result;
 
 use crate::cli::{Cli, Commands};
-use crate::commands::{load_config, Command};
+use crate::commands::{Command, load_config};
 use crate::domain::{LinkOps, LinkStatus};
-use crate::infra::{build_link_request, resolve_apps, FsUtils, FileSystem, Config, AppConfig};
+use crate::infra::{AppConfig, Config, FileSystem, FsUtils, build_link_request, resolve_apps};
 
 /// Repair 命令实现
 pub struct RepairCommand;
@@ -23,7 +23,13 @@ impl Command for RepairCommand {
 }
 
 /// 处理 repair 命令：修复损坏的链接
-pub fn handle_repair(config: &Config, apps: &[String], all: bool, force: bool, verbose: bool) -> Result<()> {
+pub fn handle_repair(
+    config: &Config,
+    apps: &[String],
+    all: bool,
+    force: bool,
+    verbose: bool,
+) -> Result<()> {
     let fs = FsUtils;
     let apps_to_repair = resolve_apps(config, apps, all);
 
@@ -47,7 +53,8 @@ fn repair_app(
     let workspace_path = &config.workspace.path;
 
     for source in &app_config.sources {
-        let (request, source_path, _) = build_link_request(app_config, source, workspace_path, force);
+        let (request, source_path, _) =
+            build_link_request(app_config, source, workspace_path, force);
         let source_display = source_path.to_string_lossy().to_string();
         let status = LinkOps::check_status(&source_path, &request.target);
 
@@ -77,7 +84,11 @@ fn repair_app(
             }
             _ => {
                 if verbose {
-                    println!("  Skipping {} (status: {})", source_display, status.as_str());
+                    println!(
+                        "  Skipping {} (status: {})",
+                        source_display,
+                        status.as_str()
+                    );
                 }
             }
         }

@@ -65,61 +65,6 @@ pub fn detect_symlink_cycle(path: &Path) -> Option<std::path::PathBuf> {
     Some(current)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn test_detect_no_cycle_on_regular_path() {
-        let temp = TempDir::new().unwrap();
-        let dir = temp.path().join("realdir");
-        std::fs::create_dir_all(&dir).unwrap();
-        assert!(detect_symlink_cycle(&dir).is_none());
-    }
-
-    #[test]
-    fn test_detect_no_cycle_on_valid_symlink() {
-        let temp = TempDir::new().unwrap();
-        let real = temp.path().join("real");
-        let link = temp.path().join("link");
-        std::fs::create_dir_all(&real).unwrap();
-        std::os::windows::fs::symlink_dir(&real, &link).unwrap();
-        assert!(detect_symlink_cycle(&link).is_none());
-    }
-
-    #[test]
-    fn test_detect_simple_cycle() {
-        let temp = TempDir::new().unwrap();
-        let a = temp.path().join("a");
-        let b = temp.path().join("b");
-        std::os::windows::fs::symlink_dir(&b, &a).unwrap();
-        std::os::windows::fs::symlink_dir(&a, &b).unwrap();
-        assert!(detect_symlink_cycle(&a).is_some());
-    }
-
-    #[test]
-    fn test_detect_three_link_cycle() {
-        let temp = TempDir::new().unwrap();
-        let a = temp.path().join("a");
-        let b = temp.path().join("b");
-        let c = temp.path().join("c");
-        std::os::windows::fs::symlink_dir(&b, &a).unwrap();
-        std::os::windows::fs::symlink_dir(&c, &b).unwrap();
-        std::os::windows::fs::symlink_dir(&a, &c).unwrap();
-        assert!(detect_symlink_cycle(&a).is_some());
-    }
-
-    #[test]
-    fn test_detect_no_cycle_on_broken_symlink() {
-        let temp = TempDir::new().unwrap();
-        let nonexistent = temp.path().join("nonexistent");
-        let link = temp.path().join("link");
-        std::os::windows::fs::symlink_dir(&nonexistent, &link).unwrap();
-        assert!(detect_symlink_cycle(&link).is_none());
-    }
-}
-
 /// 文件系统操作 trait
 ///
 /// 包含所有文件系统操作，由 [`FsUtils`] 提供默认实现。
@@ -324,5 +269,60 @@ impl FileSystem for FsUtils {
             )
         })?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::TempDir;
+
+    #[test]
+    fn test_detect_no_cycle_on_regular_path() {
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().join("realdir");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert!(detect_symlink_cycle(&dir).is_none());
+    }
+
+    #[test]
+    fn test_detect_no_cycle_on_valid_symlink() {
+        let temp = TempDir::new().unwrap();
+        let real = temp.path().join("real");
+        let link = temp.path().join("link");
+        std::fs::create_dir_all(&real).unwrap();
+        std::os::windows::fs::symlink_dir(&real, &link).unwrap();
+        assert!(detect_symlink_cycle(&link).is_none());
+    }
+
+    #[test]
+    fn test_detect_simple_cycle() {
+        let temp = TempDir::new().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        std::os::windows::fs::symlink_dir(&b, &a).unwrap();
+        std::os::windows::fs::symlink_dir(&a, &b).unwrap();
+        assert!(detect_symlink_cycle(&a).is_some());
+    }
+
+    #[test]
+    fn test_detect_three_link_cycle() {
+        let temp = TempDir::new().unwrap();
+        let a = temp.path().join("a");
+        let b = temp.path().join("b");
+        let c = temp.path().join("c");
+        std::os::windows::fs::symlink_dir(&b, &a).unwrap();
+        std::os::windows::fs::symlink_dir(&c, &b).unwrap();
+        std::os::windows::fs::symlink_dir(&a, &c).unwrap();
+        assert!(detect_symlink_cycle(&a).is_some());
+    }
+
+    #[test]
+    fn test_detect_no_cycle_on_broken_symlink() {
+        let temp = TempDir::new().unwrap();
+        let nonexistent = temp.path().join("nonexistent");
+        let link = temp.path().join("link");
+        std::os::windows::fs::symlink_dir(&nonexistent, &link).unwrap();
+        assert!(detect_symlink_cycle(&link).is_none());
     }
 }

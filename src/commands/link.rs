@@ -98,11 +98,12 @@ fn link_app(
             continue;
         }
 
-        let source_name = source
-            .source
-            .split('/')
-            .next_back()
-            .unwrap_or(&source.source);
+        // 用 Path::file_name() 取末段，同时支持 '/' 和 '\' 分隔符
+        // （原 split('/') 在 Windows 反斜杠路径下会返回整条路径）
+        let source_name = source_path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| source_path.to_string_lossy().into_owned());
         let display_name = &app_config.name;
         let mut sp = Spinner::new(Spinners::Dots12, format!("  Linking {}...", display_name));
 

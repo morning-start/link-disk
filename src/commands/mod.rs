@@ -7,6 +7,7 @@ pub mod init;
 pub mod link;
 pub mod list;
 pub mod repair;
+pub mod selfupdate;
 pub mod status;
 pub mod unlink;
 
@@ -41,6 +42,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
         Commands::List(args) => args.execute(&ctx),
         Commands::Status(args) => args.execute(&ctx),
         Commands::Repair(args) => args.execute(&ctx),
+        Commands::Selfupdate(args) => args.execute(&ctx),
     }
 }
 

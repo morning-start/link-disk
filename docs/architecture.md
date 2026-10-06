@@ -79,7 +79,8 @@ src/
 │   ├── unlink.rs          # 移除链接（可选移回文件）
 │   ├── list.rs            # 列出应用配置
 │   ├── status.rs          # 检查链接状态
-│   └── repair.rs          # 修复损坏链接
+│   ├── repair.rs          # 修复损坏链接
+│   └── selfupdate.rs      # 自我升级（查询/下载/替换）
 ├── domain/
 │   ├── mod.rs             # 领域层导出
 │   ├── link_ops.rs        # 链接状态机 + 内存版测试替身（#[cfg(test)]）
@@ -92,6 +93,7 @@ src/
     ├── config.rs          # Config / AppConfig / Source + validate()
     ├── fs_utils.rs        # FileSystem trait / FsUtils / detect_symlink_cycle
     ├── path_resolver.rs   # 占位符注册表 + PathResolver
+    ├── selfupdate.rs      # GitHub release 查询 / 版本比较 / 资产匹配 / 安全替换
     └── workspace.rs       # Workspace（工作区初始化、配置路径、目标解析）
 ```
 
@@ -119,6 +121,7 @@ src/
 | `list` | 列出所有已配置的应用和链接 | `--app`（未知应用报错） |
 | `status` | 检查链接状态是否正常 | `[apps]`（未知应用报错） |
 | `repair` | 修复损坏的链接 | `[apps]`, `--all`, `--force` |
+| `selfupdate` | 自我升级到最新 release | `--check`, `--force`, `--version <v>`, `--no-gh` |
 
 **配置解析优先级**（`commands/mod.rs::load_config`）：
 

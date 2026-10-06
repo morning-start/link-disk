@@ -7,6 +7,7 @@
 //! - list: 列出所有已配置的应用和链接
 //! - status: 检查链接状态是否正常
 //! - repair: 修复损坏的链接
+//! - selfupdate: 自我升级到最新 release
 //!
 //! 每个子命令的参数各自定义为一个 [`clap::Args`] 结构体，
 //! 由 [`Commands`] 枚举以元组变体的形式持有。
@@ -68,6 +69,8 @@ pub enum Commands {
     Status(StatusArgs),
     /// 修复损坏的链接
     Repair(RepairArgs),
+    /// 自我升级到最新 release
+    Selfupdate(SelfupdateArgs),
 }
 
 /// init 子命令参数
@@ -152,4 +155,24 @@ pub struct RepairArgs {
     /// 强制修复（自动创建缺失的链接）(-f, --force)
     #[arg(short, long, help = "强制修复（自动创建缺失的链接）")]
     pub force: bool,
+}
+
+/// selfupdate 子命令参数
+#[derive(Args)]
+pub struct SelfupdateArgs {
+    /// 仅检查新版本，不执行升级 (--check)
+    #[arg(long, help = "仅检查新版本，不执行升级")]
+    pub check: bool,
+
+    /// 即使已是最新版本也强制重新下载安装 (--force)
+    #[arg(short, long, help = "即使已是最新版本也强制重新下载安装")]
+    pub force: bool,
+
+    /// 升级到指定版本（如 v2.2.1 或 2.2.1，默认最新 release）
+    #[arg(long, help = "升级到指定版本（默认最新 release）")]
+    pub version: Option<String>,
+
+    /// 跳过 gh CLI，直接使用 GitHub REST API
+    #[arg(long, help = "跳过 gh CLI，直接使用 GitHub REST API")]
+    pub no_gh: bool,
 }

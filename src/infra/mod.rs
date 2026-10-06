@@ -7,6 +7,7 @@
 mod config;
 mod fs_utils;
 mod path_resolver;
+pub mod selfupdate;
 mod workspace;
 
 pub use config::{AppConfig, Config, Source};

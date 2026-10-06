@@ -247,7 +247,7 @@ pub struct LinkRequest {
 impl LinkOps {
     pub fn link_with_fs(request: &LinkRequest, fs: &dyn FileSystem) -> Result<()>;
     pub fn unlink_with_fs(source: &Path, target: &Path, keep_files: bool, fs: &dyn FileSystem) -> Result<()>;
-    pub fn check_status(source: &Path, target: &Path) -> LinkStatus;
+    pub fn check_status(source: &Path, target: &Path, fs: &dyn FileSystem) -> LinkStatus;
 }
 ```
 
@@ -255,7 +255,7 @@ impl LinkOps {
 
 | 当前状态 | 动作 |
 |---------|------|
-| source 是指向 target 的链接 | 幂等，直接返回 |
+| source 是指向 target 的链接 | 幂等，直接返回（`--force` 也不例外） |
 | source 是指向其他位置的链接 | `force`：删除后重建；否则报错 |
 | source 真实存在 + target 不存在 | 移动 source → target |
 | source 真实存在 + target 存在 | 按 `on_exists` 策略归一（skip 报错） |
@@ -279,8 +279,8 @@ impl LinkOps {
 
 ### 3.8 Link Status 层 (domain/link_status.rs)
 
-`LinkStatusChecker::check(source, target)` 基于 `is_symlink` / `exists`
-分类六种状态；对外统一经由 `LinkOps::check_status` 使用。
+`LinkStatusChecker::check(source, target, fs)` 基于 `FileSystem` trait 的
+`is_symlink` / `exists` 分类六种状态；对外统一经由 `LinkOps::check_status` 使用。
 
 | 状态 | 说明 |
 |------|------|

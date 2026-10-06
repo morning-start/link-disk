@@ -94,7 +94,7 @@ fn test_link_status_none() {
     let source = temp.path().join("nonexistent_src");
     let target = temp.path().join("nonexistent_tgt");
 
-    let status = link_disk::domain::LinkOps::check_status(&source, &target);
+    let status = link_disk::domain::LinkOps::check_status(&source, &target, &FsUtils);
     assert_eq!(status, link_disk::domain::LinkStatus::None);
 }
 
@@ -102,7 +102,7 @@ fn test_link_status_none() {
 fn test_link_status_source_only() {
     let (_temp, source, target) = setup_test_env_with_source();
 
-    let status = link_disk::domain::LinkOps::check_status(&source, &target);
+    let status = link_disk::domain::LinkOps::check_status(&source, &target, &FsUtils);
     assert_eq!(status, link_disk::domain::LinkStatus::SourceOnly);
 }
 
@@ -111,7 +111,7 @@ fn test_link_status_target_only() {
     let (_temp, source, target) = setup_test_env_empty();
     std::fs::create_dir_all(&target).unwrap();
 
-    let status = link_disk::domain::LinkOps::check_status(&source, &target);
+    let status = link_disk::domain::LinkOps::check_status(&source, &target, &FsUtils);
     assert_eq!(status, link_disk::domain::LinkStatus::TargetOnly);
 }
 
@@ -131,7 +131,7 @@ fn test_link_status_linked() {
     fs.remove_if_exists(&source).unwrap();
     fs.create_symlink(&target, &source).unwrap();
 
-    let status = link_disk::domain::LinkOps::check_status(&source, &target);
+    let status = link_disk::domain::LinkOps::check_status(&source, &target, &FsUtils);
     assert_eq!(status, link_disk::domain::LinkStatus::Linked);
 }
 

@@ -113,8 +113,9 @@ impl LinkOps {
 
     /// 处理 source 位置已存在的符号链接
     ///
-    /// - source 不是链接：直接返回（进入状态归一流程）
-    /// - 已正确指向 target：幂等返回 `true`（link_with_fs 应跳过后续步骤）
+    /// - source 不是链接：直接返回 `false`（进入状态归一流程）
+    /// - 已正确指向 target：幂等返回 `true`（`--force` 也不例外，不做删除重建）
+    /// - 指向其他位置：`force` 删除旧链接返回 `false`；否则报错
     fn handle_existing_symlink(
         source: &Path,
         target: &Path,
@@ -125,15 +126,17 @@ impl LinkOps {
             return Ok(false);
         }
 
+        // 先判幂等再考虑 force：已正确指向 target 时，
+        // 即使 --force 也不应删除重建（避免重建窗口期链接缺失）
+        if Self::points_to(source, target, fs) {
+            debug!("Already linked: {}", source.display());
+            return Ok(true);
+        }
+
         if force {
             debug!("Force: removing existing symlink: {}", source.display());
             fs.remove_if_exists(source)?;
             return Ok(false);
-        }
-
-        if Self::points_to(source, target, fs) {
-            debug!("Already linked: {}", source.display());
-            return Ok(true);
         }
 
         anyhow::bail!(
@@ -283,8 +286,8 @@ impl LinkOps {
     }
 
     /// 检查链接状态（委托给 `link_status` 模块的检查器）
-    pub fn check_status(source: &Path, target: &Path) -> LinkStatus {
-        LinkStatusChecker::check(source, target)
+    pub fn check_status(source: &Path, target: &Path, fs: &dyn FileSystem) -> LinkStatus {
+        LinkStatusChecker::check(source, target, fs)
     }
 }
 
@@ -474,6 +477,26 @@ mod tests {
         assert!(fs.has_dir("tgt-a"));
     }
 
+    // 回归：force + 已正确链接必须幂等，不得删除重建。
+    // 修复前的顺序是先 force 删除再判幂等，会把正确链接毁掉。
+    #[test]
+    fn link_force_is_still_idempotent_when_correctly_linked() {
+        let fs = MemoryFs::new_with(&["tgt-a"], &[("src-a", "tgt-a")]);
+        LinkOps::link_with_fs(&request(OnExists::Skip, true, LinkType::Symlink), &fs).unwrap();
+
+        assert!(
+            !fs.performed("remove src-a"),
+            "force 不应删除已正确指向 target 的链接: {:?}",
+            fs.ops.borrow()
+        );
+        assert!(
+            !fs.performed("symlink src-a -> tgt-a"),
+            "已正确链接时不应重建: {:?}",
+            fs.ops.borrow()
+        );
+        assert!(fs.linked_to("src-a", "tgt-a"));
+    }
+
     #[test]
     fn link_fails_when_symlink_points_to_different_target() {
         let fs = MemoryFs::new_with(&["other", "tgt-a"], &[("src-a", "other")]);
@@ -612,5 +635,50 @@ mod tests {
         let fs = MemoryFs::new_with(&[], &[]);
         LinkOps::unlink_with_fs(Path::new("src-a"), Path::new("tgt-a"), false, &fs).unwrap();
         assert!(fs.ops.borrow().is_empty());
+    }
+
+    // === check_status 状态分支 ===
+
+    #[test]
+    fn status_linked_when_symlink_and_target_exist() {
+        let fs = MemoryFs::new_with(&["tgt-a"], &[("src-a", "tgt-a")]);
+        let status = LinkOps::check_status(Path::new("src-a"), Path::new("tgt-a"), &fs);
+        assert_eq!(status, LinkStatus::Linked);
+    }
+
+    #[test]
+    fn status_broken_when_symlink_target_missing() {
+        // 链接指向的 tgt-a 不存在：MemoryFs::exists 对坏链接返回 false
+        let fs = MemoryFs::new_with(&[], &[("src-a", "tgt-a")]);
+        let status = LinkOps::check_status(Path::new("src-a"), Path::new("tgt-a"), &fs);
+        assert_eq!(status, LinkStatus::Broken);
+    }
+
+    #[test]
+    fn status_both_exist() {
+        let fs = MemoryFs::new_with(&["src-a", "tgt-a"], &[]);
+        let status = LinkOps::check_status(Path::new("src-a"), Path::new("tgt-a"), &fs);
+        assert_eq!(status, LinkStatus::BothExist);
+    }
+
+    #[test]
+    fn status_source_only() {
+        let fs = MemoryFs::new_with(&["src-a"], &[]);
+        let status = LinkOps::check_status(Path::new("src-a"), Path::new("tgt-a"), &fs);
+        assert_eq!(status, LinkStatus::SourceOnly);
+    }
+
+    #[test]
+    fn status_target_only() {
+        let fs = MemoryFs::new_with(&["tgt-a"], &[]);
+        let status = LinkOps::check_status(Path::new("src-a"), Path::new("tgt-a"), &fs);
+        assert_eq!(status, LinkStatus::TargetOnly);
+    }
+
+    #[test]
+    fn status_none_when_both_missing() {
+        let fs = MemoryFs::new_with(&[], &[]);
+        let status = LinkOps::check_status(Path::new("src-a"), Path::new("tgt-a"), &fs);
+        assert_eq!(status, LinkStatus::None);
     }
 }

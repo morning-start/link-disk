@@ -54,7 +54,7 @@ fn repair_source(
 ) -> Result<()> {
     let source_display = request.source.display().to_string();
 
-    match LinkOps::check_status(&request.source, &request.target) {
+    match LinkOps::check_status(&request.source, &request.target, fs) {
         // 源链接指向已消失的目标：删除旧链接后重建（目标缺失时由 link 流程补建空目录）
         LinkStatus::Broken => {
             fs.remove_if_exists(&request.source)?;

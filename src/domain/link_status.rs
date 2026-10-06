@@ -1,8 +1,13 @@
 //! 链接状态检查模块
 //!
 //! 提供链接状态的枚举定义和检查逻辑。
+//!
+//! 状态查询经由 [`FileSystem`] trait，与领域层其余文件访问保持一致：
+//! 真实文件系统用 `FsUtils`，测试用内存替身即可覆盖全部状态分支。
 
 use std::path::Path;
+
+use crate::infra::FileSystem;
 
 /// 链接状态枚举
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,26 +49,75 @@ impl LinkStatusChecker {
     /// # 参数
     /// - `source`: 源路径（原位置）
     /// - `target`: 目标路径（工作区中的位置）
+    /// - `fs`: 文件系统抽象（真实实现或测试替身）
     ///
     /// # 返回值
     /// 链接状态枚举值
-    pub fn check(source: &Path, target: &Path) -> LinkStatus {
-        if source.is_symlink() {
-            if target.exists() {
+    pub fn check(source: &Path, target: &Path, fs: &dyn FileSystem) -> LinkStatus {
+        if fs.is_symlink(source) {
+            if fs.exists(target) {
                 LinkStatus::Linked
             } else {
                 LinkStatus::Broken
             }
-        } else if source.exists() {
-            if target.exists() {
+        } else if fs.exists(source) {
+            if fs.exists(target) {
                 LinkStatus::BothExist
             } else {
                 LinkStatus::SourceOnly
             }
-        } else if target.exists() {
+        } else if fs.exists(target) {
             LinkStatus::TargetOnly
         } else {
             LinkStatus::None
         }
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::infra::FsUtils;
+    use tempfile::TempDir;
+
+    #[test]
+    fn status_none_when_both_missing() {
+        let temp = TempDir::new().unwrap();
+        let status =
+            LinkStatusChecker::check(&temp.path().join("s"), &temp.path().join("t"), &FsUtils);
+        assert_eq!(status, LinkStatus::None);
+        assert_eq!(status.as_str(), "none");
+    }
+
+    #[test]
+    fn status_source_only() {
+        let temp = TempDir::new().unwrap();
+        let source = temp.path().join("s");
+        std::fs::create_dir_all(&source).unwrap();
+        let status = LinkStatusChecker::check(&source, &temp.path().join("t"), &FsUtils);
+        assert_eq!(status, LinkStatus::SourceOnly);
+    }
+
+    #[test]
+    fn status_target_only() {
+        let temp = TempDir::new().unwrap();
+        let target = temp.path().join("t");
+        std::fs::create_dir_all(&target).unwrap();
+        let status = LinkStatusChecker::check(&temp.path().join("s"), &target, &FsUtils);
+        assert_eq!(status, LinkStatus::TargetOnly);
+    }
+
+    #[test]
+    fn status_both_exist() {
+        let temp = TempDir::new().unwrap();
+        let source = temp.path().join("s");
+        let target = temp.path().join("t");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&target).unwrap();
+        let status = LinkStatusChecker::check(&source, &target, &FsUtils);
+        assert_eq!(status, LinkStatus::BothExist);
+    }
+
+    // 真实符号链接的两个状态（linked / broken）需要链接创建权限，
+    // 在 link_ops.rs 的 MemoryFs 测试中已有无权限等价覆盖。
 }

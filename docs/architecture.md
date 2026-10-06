@@ -72,7 +72,6 @@ src/
 ├── main.rs                # 程序入口、日志初始化（RUST_LOG > --verbose）
 ├── lib.rs                 # 公共库导出（供集成测试使用）
 ├── cli.rs                 # Cli / CliContext / Commands / 各 *Args（clap）
-├── version.rs             # 版本号单一来源（build.rs 从 git tags 注入）
 ├── commands/
 │   ├── mod.rs             # Command trait、dispatch()、load_config()、select_apps()
 │   ├── init.rs            # 初始化工作区与配置
@@ -387,16 +386,3 @@ cargo clippy --all-targets   # lint
 | `dirs` | 系统目录路径获取 |
 | `tracing` / `tracing-subscriber` | 分级日志 |
 | `spinners` | 终端进度指示器（仅非 verbose 模式） |
-
----
-
-## 附：版本号来源
-
-版本号以 **git tags 为单一事实来源**（`build.rs` 编译期推导）：
-
-- HEAD 停在 tag 上 → `git describe --tags` 输出该 tag，取基本段（剥 `v` 前缀）
-- 开发提交 → 最近一次发布的 tag（`v2.3.0-3-gacf823b` → `2.3.0`）
-- 无 git / 无 tag（源码包构建）→ 回退 `Cargo.toml` 的 `version`
-
-`version::VERSION` 供 `--version` 输出，`selfupdate::CURRENT_VERSION` 供升级
-比较——二者同源，消除"tag 是 v2.x 而二进制自报旧版本"的脱节。

@@ -25,12 +25,8 @@ use tracing::debug;
 /// 升级源仓库（owner/repo）
 pub const REPO: &str = "morning-start/link-disk";
 
-/// 当前二进制的版本号
-///
-/// 来自 build.rs 的 git tags 推导（`LINK_DISK_VERSION`），与
-/// `--version` 输出一致；build.rs 保证该值非空（git 不可用时
-/// 回退 Cargo.toml 的 version），因此这里直接展开即可。
-pub const CURRENT_VERSION: &str = env!("LINK_DISK_VERSION");
+/// 当前二进制的版本号（来自 Cargo.toml）
+pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// GitHub release 元数据（仅取升级所需字段）
 #[derive(Debug, Clone)]

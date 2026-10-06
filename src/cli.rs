@@ -19,9 +19,7 @@ use clap::{Args, Parser, Subcommand};
 /// CLI 命令行参数结构体
 #[derive(Parser)]
 #[command(name = "link-disk")]
-// 版本号与 selfupdate 保持同源：build.rs 从 git tags 推导，
-// 无 git 环境回退 Cargo.toml（避免 tag 与内嵌版本脱节）
-#[command(version = crate::version::VERSION)]
+#[command(version)]
 #[command(about = "Move folders and link them back", long_about = None)]
 pub struct Cli {
     /// 详细输出模式 (-v, --verbose)

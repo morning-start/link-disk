@@ -9,7 +9,6 @@ mod cli;
 mod commands;
 mod domain;
 mod infra;
-mod version;
 
 use anyhow::Result;
 use clap::Parser;

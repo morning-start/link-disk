@@ -94,7 +94,7 @@ fn test_link_status_none() {
     let source = temp.path().join("nonexistent_src");
     let target = temp.path().join("nonexistent_tgt");
 
-    let status = link_disk::domain::LinkStatusChecker::check(&source, &target);
+    let status = link_disk::domain::LinkOps::check_status(&source, &target);
     assert_eq!(status, link_disk::domain::LinkStatus::None);
 }
 
@@ -102,7 +102,7 @@ fn test_link_status_none() {
 fn test_link_status_source_only() {
     let (_temp, source, target) = setup_test_env_with_source();
 
-    let status = link_disk::domain::LinkStatusChecker::check(&source, &target);
+    let status = link_disk::domain::LinkOps::check_status(&source, &target);
     assert_eq!(status, link_disk::domain::LinkStatus::SourceOnly);
 }
 
@@ -111,7 +111,7 @@ fn test_link_status_target_only() {
     let (_temp, source, target) = setup_test_env_empty();
     std::fs::create_dir_all(&target).unwrap();
 
-    let status = link_disk::domain::LinkStatusChecker::check(&source, &target);
+    let status = link_disk::domain::LinkOps::check_status(&source, &target);
     assert_eq!(status, link_disk::domain::LinkStatus::TargetOnly);
 }
 
@@ -131,7 +131,7 @@ fn test_link_status_linked() {
     fs.remove_if_exists(&source).unwrap();
     fs.create_symlink(&target, &source).unwrap();
 
-    let status = link_disk::domain::LinkStatusChecker::check(&source, &target);
+    let status = link_disk::domain::LinkOps::check_status(&source, &target);
     assert_eq!(status, link_disk::domain::LinkStatus::Linked);
 }
 
@@ -161,16 +161,13 @@ fn test_path_resolver_expand_localappdata() {
 
 #[test]
 fn test_config_workspace() {
-    use link_disk::infra::{Config, ConfigWorkspace};
-    use std::collections::BTreeMap;
+    use link_disk::infra::Config;
 
-    let config = Config {
-        workspace: ConfigWorkspace {
-            path: PathBuf::from("D:/test-workspace"),
-        },
-        apps: BTreeMap::new(),
-        custom_placeholders: Default::default(),
-    };
+    let toml_str = r#"
+[workspace]
+path = "D:/test-workspace"
+"#;
+    let config: Config = toml::from_str(toml_str).unwrap();
 
     assert_eq!(config.workspace.path, PathBuf::from("D:/test-workspace"));
     assert!(config.apps.is_empty());

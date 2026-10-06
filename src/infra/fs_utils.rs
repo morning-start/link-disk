@@ -10,8 +10,10 @@
 //!
 //! ## 接口设计（单一 trait）
 //!
-//! 使用统一的 [`FileSystem`] trait 包含所有文件系统操作，
-//! 由 [`FsUtils`] 提供默认实现。
+//! 使用统一的 [`FileSystem`] trait 包含所有文件系统操作与状态查询，
+//! 由 [`FsUtils`] 提供默认实现。领域层的所有文件访问都必须经由该 trait，
+//! 不直接调用 `std::fs`——这样测试可以用内存替身完整驱动链接状态机，
+//! 核心分支不依赖真实符号链接权限。
 
 use anyhow::{Context, Result};
 use std::collections::{HashSet, VecDeque};
@@ -58,13 +60,25 @@ pub fn detect_symlink_cycle(path: &Path) -> Option<PathBuf> {
 
 /// 文件系统操作 trait
 ///
-/// 包含所有文件系统操作，由 [`FsUtils`] 提供默认实现。
+/// 包含所有文件系统操作与状态查询，由 [`FsUtils`] 提供默认实现。
 pub trait FileSystem {
+    /// 路径是否存在（跟随符号链接；指向不存在目标的坏链接返回 false）
+    fn exists(&self, path: &Path) -> bool;
+
+    /// 路径是否为符号链接（坏链接也返回 true）
+    fn is_symlink(&self, path: &Path) -> bool;
+
+    /// 路径是否存在且为目录（跟随符号链接）
+    fn is_dir(&self, path: &Path) -> bool;
+
     /// 规范化路径（统一分隔符；Windows 上同时转小写以便比较）
     fn normalize_path(&self, path: &Path) -> String;
 
     /// 读取符号链接指向的目标路径
     fn read_link(&self, path: &Path) -> Option<PathBuf>;
+
+    /// 创建目录及其所有缺失的父目录
+    fn create_dir_all(&self, path: &Path) -> Result<()>;
 
     /// 递归复制目录及其所有内容（迭代实现，不依赖调用栈深度）
     fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()>;
@@ -131,6 +145,18 @@ impl FsUtils {
 }
 
 impl FileSystem for FsUtils {
+    fn exists(&self, path: &Path) -> bool {
+        path.exists()
+    }
+
+    fn is_symlink(&self, path: &Path) -> bool {
+        path.is_symlink()
+    }
+
+    fn is_dir(&self, path: &Path) -> bool {
+        path.is_dir()
+    }
+
     fn normalize_path(&self, path: &Path) -> String {
         let normalized = path.to_string_lossy().replace("\\", "/");
         #[cfg(windows)]
@@ -145,6 +171,11 @@ impl FileSystem for FsUtils {
 
     fn read_link(&self, path: &Path) -> Option<PathBuf> {
         std::fs::read_link(path).ok()
+    }
+
+    fn create_dir_all(&self, path: &Path) -> Result<()> {
+        std::fs::create_dir_all(path)
+            .with_context(|| format!("Failed to create directory: {:?}", path))
     }
 
     fn copy_dir_recursive(&self, src: &Path, dst: &Path) -> Result<()> {

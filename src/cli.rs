@@ -18,7 +18,6 @@ use clap::{Args, Parser, Subcommand};
 /// CLI 命令行参数结构体
 #[derive(Parser)]
 #[command(name = "link-disk")]
-#[command(author = "Your Name")]
 #[command(version)]
 #[command(about = "Move folders and link them back", long_about = None)]
 pub struct Cli {

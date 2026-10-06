@@ -476,7 +476,7 @@ link_type = "symlink"  # 影响链接创建方式
 ```
 
 - **workspace.path**: 决定目标位置的根目录
-- **on_exists**: 决定冲突时的处理策略（skip/merge/replace/overwrite）
+- **on_exists**: 决定冲突时的处理策略（skip/merge/preserve/replace，`overwrite` 为 `preserve` 的别名）
 - **link_type**: 决定创建符号链接还是硬链接
 - **enabled**: 决定是否处理该应用（`--all` 时跳过 disabled 的应用）
 

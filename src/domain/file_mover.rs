@@ -18,12 +18,16 @@ use crate::infra::FileSystem;
 ///
 /// 使用 BFS 迭代实现，避免深目录导致的栈溢出。
 ///
+/// 注意：目录遍历与文件复制经由 `std::fs` 直接执行
+/// （`DirEntry` 是具体类型，无法抽象进 [`FileSystem`] trait），
+/// 因此 merge 路径的测试使用真实临时目录而非内存替身。
+///
 /// # 参数
 /// - `source`: 源目录路径
 /// - `target`: 目标目录路径
 /// - `fs`: 文件系统操作接口
 pub fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<()> {
-    if !source.is_dir() || !target.is_dir() {
+    if !fs.is_dir(source) || !fs.is_dir(target) {
         anyhow::bail!("Merge requires both paths to be directories");
     }
 
@@ -31,9 +35,8 @@ pub fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<(
     queue.push_back((source.to_path_buf(), target.to_path_buf()));
 
     while let Some((src_dir, dst_dir)) = queue.pop_front() {
-        if !dst_dir.exists() {
-            std::fs::create_dir_all(&dst_dir)
-                .with_context(|| format!("Failed to create directory: {:?}", dst_dir))?;
+        if !fs.exists(&dst_dir) {
+            fs.create_dir_all(&dst_dir)?;
         }
 
         for entry in std::fs::read_dir(&src_dir)
@@ -43,9 +46,9 @@ pub fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<(
             let src_path = entry.path();
             let dst_path = dst_dir.join(entry.file_name());
 
-            if src_path.is_dir() {
+            if fs.is_dir(&src_path) {
                 queue.push_back((src_path, dst_path));
-            } else if !dst_path.exists() {
+            } else if !fs.exists(&dst_path) {
                 std::fs::copy(&src_path, &dst_path)
                     .with_context(|| format!("Failed to copy: {:?} to {:?}", src_path, dst_path))?;
             } else {
@@ -65,25 +68,24 @@ pub fn merge_dirs(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<(
     Ok(())
 }
 
-/// 将源位置的内容移回目标位置
+/// 将目标位置的内容移回源位置
 ///
-/// 用于 unlink 操作中恢复文件到原始位置。
-/// 如果源是目录，则递归复制后删除；如果是文件，则直接重命名。
+/// 用于 unlink 操作恢复文件到原始位置。
+/// 如果目标是目录，则递归复制后删除；如果是文件，则直接重命名。
 ///
 /// # 参数
 /// - `source`: 源位置（当前文件所在位置）
 /// - `target`: 目标位置（要移动到的位置）
 /// - `fs`: 文件系统操作接口
 pub fn move_back(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<()> {
-    if !source.exists() {
+    if !fs.exists(source) {
         anyhow::bail!("Source path does not exist: {:?}", source);
     }
 
     fs.ensure_parent_exists(target)?;
 
-    if source.is_dir() {
-        fs.copy_dir_recursive(source, target)?;
-        fs.remove_if_exists(source)?;
+    if fs.is_dir(source) {
+        fs.move_path(source, target)?;
     } else {
         fs.rename(source, target)?;
     }

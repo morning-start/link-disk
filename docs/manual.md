@@ -141,7 +141,7 @@ link-disk link [应用名...] [选项]
 | source 存在，target 存在 + skip | 不执行任何操作 | ❌ 跳过，不创建链接 | - |
 | source 存在，target 存在 + replace | 删除 target，移动 source → target | source 不存在 + target 存在 | create_link |
 | source 存在，target 存在 + merge | 合并 source 到 target 后删除 source | source 不存在 + target 存在 | create_link |
-| source 存在，target 存在 + overwrite | 删除 source | source 不存在 + target 存在 | create_link |
+| source 存在，target 存在 + preserve | 删除 source | source 不存在 + target 存在 | create_link |
 | source 不存在，target 不存在 | 创建 target 目录 | source 不存在 + target 存在 | create_link |
 | source 不存在，target 存在 | 无需预处理（已是标准状态） | source 不存在 + target 存在 | create_link |
 
@@ -154,7 +154,7 @@ link-disk link [应用名...] [选项]
 | `skip` | 不执行任何操作 | 保持现状 | ❌ 跳过，不创建链接 | 保留 target 的现有数据，避免覆盖 |
 | `replace` | 删除 target，移动 source → target | source 不存在 + target 存在 | create_link | 确认 target 数据不再需要，完全替换 |
 | `merge` | 合并 source 到 target 后删除 source | source 不存在 + target 存在 | create_link | 以 target 为准，source 补充缺失内容 |
-| `overwrite` | 删除 source | source 不存在 + target 存在 | create_link | 保留 target 数据，丢弃 source 旧数据 |
+| `preserve` | 删除 source | source 不存在 + target 存在 | create_link | 保留 target 数据，丢弃 source 旧数据（旧别名 `overwrite` 仍可用） |
 
 **示例：**
 

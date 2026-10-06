@@ -1,36 +1,27 @@
 //! 列表命令处理
 
-use crate::cli::{Cli, Commands};
-use crate::commands::{Command, load_config};
-use crate::infra::{AppConfig, Config};
 use anyhow::Result;
 
-/// List 命令实现
-pub struct ListCommand;
+use crate::cli::{CliContext, ListArgs};
+use crate::commands::{Command, load_config};
+use crate::infra::{AppConfig, Config};
 
-impl Command for ListCommand {
-    fn execute(&self, cli: &Cli) -> Result<()> {
-        let app = match &cli.command {
-            Commands::List { app } => app,
-            _ => unreachable!(),
-        };
-
-        let config = load_config(cli.config.as_ref())?;
-        handle_list(&config, app.as_ref());
+/// List 子命令实现
+impl Command for ListArgs {
+    fn execute(&self, ctx: &CliContext) -> Result<()> {
+        let config = load_config(ctx)?;
+        handle_list(&config, self.app.as_deref());
         Ok(())
     }
 }
 
 /// 处理 list 命令：列出应用的链接配置
-pub fn handle_list(config: &Config, app: Option<&String>) {
+pub fn handle_list(config: &Config, app: Option<&str>) {
     match app {
-        Some(app_id) => {
-            if let Some(app_config) = config.get_app(app_id) {
-                print_app_links(app_config);
-            } else {
-                println!("App not found: {}", app_id);
-            }
-        }
+        Some(app_id) => match config.get_app(app_id) {
+            Some(app_config) => print_app_links(app_config),
+            None => println!("App not found: {app_id}"),
+        },
         None => {
             for (_, app_config) in config.enabled_apps() {
                 print_app_links(app_config);
@@ -40,7 +31,7 @@ pub fn handle_list(config: &Config, app: Option<&String>) {
     }
 }
 
-/// 打印应用的链接配置信息
+/// 打印单个应用的链接配置（仅展示配置的原始路径，不做解析）
 fn print_app_links(app_config: &AppConfig) {
     println!("App: {}", app_config.name);
 

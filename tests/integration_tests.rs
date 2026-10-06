@@ -162,14 +162,14 @@ fn test_path_resolver_expand_localappdata() {
 #[test]
 fn test_config_workspace() {
     use link_disk::infra::{Config, ConfigWorkspace};
-    use std::collections::HashMap;
+    use std::collections::BTreeMap;
 
     let config = Config {
         workspace: ConfigWorkspace {
             path: PathBuf::from("D:/test-workspace"),
         },
-        apps: HashMap::new(),
-        custom_placeholders: HashMap::new(),
+        apps: BTreeMap::new(),
+        custom_placeholders: Default::default(),
     };
 
     assert_eq!(config.workspace.path, PathBuf::from("D:/test-workspace"));
@@ -287,7 +287,7 @@ fn test_link_ops_full_link_and_unlink() {
     };
 
     let fs = FsUtils;
-    let link_result = LinkOps::link_with_fs(&request, &fs, false);
+    let link_result = LinkOps::link_with_fs(&request, &fs);
     assert!(link_result.is_ok(), "Link failed: {:?}", link_result.err());
 
     // source 成为指向 target 的符号链接
@@ -328,7 +328,7 @@ fn test_link_ops_with_replace_strategy() {
     };
 
     let fs = FsUtils;
-    let link_result = LinkOps::link_with_fs(&request, &fs, false);
+    let link_result = LinkOps::link_with_fs(&request, &fs);
     assert!(link_result.is_ok());
 
     // source 成为 symlink，target 包含合并后的数据
@@ -341,8 +341,7 @@ fn test_link_ops_with_replace_strategy() {
 
 #[test]
 fn test_build_link_request_source_level_on_exists_priority() {
-    use link_disk::domain::OnExists;
-    use link_disk::infra::build_link_request;
+    use link_disk::domain::{OnExists, build_link_request};
 
     let temp = TempDir::new().unwrap();
     let workspace_path = temp.path().join("workspace");
@@ -360,14 +359,13 @@ fn test_build_link_request_source_level_on_exists_priority() {
         }],
     };
 
-    let (request, _, _) = build_link_request(&app, &app.sources[0], &workspace_path, false);
+    let request = build_link_request(&app, &app.sources[0], &workspace_path, false);
     assert_eq!(request.on_exists, OnExists::Replace);
 }
 
 #[test]
 fn test_build_link_request_falls_back_to_app_level() {
-    use link_disk::domain::OnExists;
-    use link_disk::infra::build_link_request;
+    use link_disk::domain::{OnExists, build_link_request};
 
     let temp = TempDir::new().unwrap();
     let workspace_path = temp.path().join("workspace");
@@ -385,6 +383,6 @@ fn test_build_link_request_falls_back_to_app_level() {
         }],
     };
 
-    let (request, _, _) = build_link_request(&app, &app.sources[0], &workspace_path, false);
+    let request = build_link_request(&app, &app.sources[0], &workspace_path, false);
     assert_eq!(request.on_exists, OnExists::Merge);
 }

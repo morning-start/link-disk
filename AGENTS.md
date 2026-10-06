@@ -33,19 +33,21 @@
 ┌─────────────────────────────────────────────────────────┐
 │              commands 层 (CLI 调度)                      │
 │    init / link / unlink / list / status / repair        │
-│         实现 Command trait，由 dispatch() 统一调度        │
+│   各子命令参数结构体实现 Command trait，dispatch() 调度   │
+│   load_config() 统一解析 --config > 环境变量 > 默认位置   │
 └──────────────────────┬──────────────────────────────────┘
                        │ 依赖
 ┌──────────────────────▼──────────────────────────────────┐
 │              domain 层 (核心业务逻辑)                     │
 │   link_ops(链接操作) · link_status(状态) · file_mover    │
-│   strategies(on_exists 策略) · LinkType/OnExists 枚举   │
+│   strategies(on_exists 策略) · request_builder(请求构建) │
+│   LinkType/OnExists 枚举                                 │
 └──────────────────────┬──────────────────────────────────┘
                        │ 依赖
 ┌──────────────────────▼──────────────────────────────────┐
 │              infra 层 (基础设施)                          │
 │  config(TOML 解析) · workspace(工作区) · path_resolver   │
-│  fs_utils(文件系统操作 FileSystem trait) · request_builder│
+│  fs_utils(文件系统操作 FileSystem trait)                  │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -112,14 +114,14 @@ link-disk/
 │   │   ├── link_ops.rs      #   链接创建/删除/验证
 │   │   ├── link_status.rs   #   链接状态枚举与检查
 │   │   ├── file_mover.rs    #   目录合并、文件移回
+│   │   ├── request_builder.rs # 路径解析与 LinkRequest 构建
 │   │   └── strategies.rs    #   on_exists 策略 (OnExists 枚举)
 │   └── infra/               # 基础设施层
 │       ├── mod.rs           #   模块导出
 │       ├── config.rs        #   TOML 配置加载与校验
 │       ├── workspace.rs     #   工作区路径管理
 │       ├── path_resolver.rs #   占位符解析与注册表
-│       ├── fs_utils.rs      #   FileSystem trait + FsUtils 实现
-│       └── request_builder.rs # 应用解析与 LinkRequest 构建
+│       └── fs_utils.rs      #   FileSystem trait + FsUtils 实现
 ├── docs/
 │   ├── architecture.md      # 项目架构文档
 │   ├── workflows.md         # 业务流程和场景图
@@ -138,17 +140,17 @@ link-disk/
 | 模块 | 职责 | 关键类型 |
 |------|------|---------|
 | `cli.rs` | 命令行参数解析 | `Cli`, `Commands` |
-| `commands/mod.rs` | 命令调度入口 | `Command` trait, `dispatch()` |
-| `commands/*.rs` | 各子命令实现 | `LinkCommand`, `InitCommand` 等 |
+| `commands/mod.rs` | 命令调度入口 | `Command` trait, `dispatch()`, `load_config()`, `select_apps()` |
+| `commands/*.rs` | 各子命令实现 | `LinkArgs`, `InitArgs` 等（实现 `Command` trait） |
 | `domain/link_ops.rs` | 链接创建/删除/验证 | `LinkOps`, `LinkRequest`, `LinkType` |
 | `domain/strategies.rs` | on_exists 策略 | `OnExists`, `OnExistsAction` |
 | `domain/file_mover.rs` | 目录合并、文件移回 | - |
 | `domain/link_status.rs` | 链接状态检查 | `LinkStatus`, `LinkStatusChecker` |
+| `domain/request_builder.rs` | 路径解析与请求构建 | `build_link_request`, `resolve_source_target` |
 | `infra/config.rs` | TOML 配置加载与校验 | `Config`, `AppConfig`, `Source` |
 | `infra/workspace.rs` | 工作区路径管理 | `Workspace` |
 | `infra/path_resolver.rs` | 占位符解析与注册 | `PathResolver`, `placeholders::*` |
 | `infra/fs_utils.rs` | 文件系统操作封装 | `FileSystem` trait, `FsUtils` |
-| `infra/request_builder.rs` | 应用解析与请求构建 | `build_link_request`, `resolve_apps` |
 
 ---
 
@@ -214,7 +216,7 @@ pub enum OnExists { Skip, Merge, Preserve, Replace }
 struct Config {
     workspace: Workspace,
     #[serde(default)]
-    apps: HashMap<String, AppConfig>,
+    apps: BTreeMap<String, AppConfig>,  // BTreeMap：遍历顺序按应用 ID 稳定
 }
 ```
 
@@ -331,8 +333,9 @@ link_type = "symlink"  # symlink | hardlink
 
 ### 添加新命令
 
-1. 在 `cli.rs` 的 `Commands` 枚举中添加新的 `clap` 子命令变体
-2. 在 `commands/` 下新建模块，实现 `Command` trait（如 `pub struct XxxCommand`）
+1. 在 `cli.rs` 中新增 `*Args` 参数结构体（derive `clap::Args`），并加入 `Commands` 枚举变体
+2. 在 `commands/` 下新建模块，为该 `*Args` 实现 `Command` trait（`execute(&self, ctx: &CliContext)`，
+   全局选项经 `CliContext` 传入，不再 match 整个 `Cli`）
 3. 在 `commands/mod.rs` 的 `dispatch()` 中添加对应的 match 分支
 4. 在 `domain/`（业务逻辑）或 `infra/`（基础设施）中实现底层能力
 5. 添加集成测试

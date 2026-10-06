@@ -27,12 +27,12 @@ fn main() {
 }
 
 /// 初始化日志系统
+///
+/// 优先级：`RUST_LOG` 环境变量 > `--verbose` 推导的默认过滤级别。
 fn setup_logging(verbose: bool) {
-    let filter = if verbose {
-        EnvFilter::new("link_disk=debug")
-    } else {
-        EnvFilter::new("link_disk=info")
-    };
+    let default_level = if verbose { "debug" } else { "info" };
+    let filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new(format!("link_disk={default_level}")));
 
     tracing_subscriber::fmt().with_env_filter(filter).init();
 }

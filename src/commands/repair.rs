@@ -2,23 +2,16 @@
 
 use anyhow::Result;
 
-use crate::cli::{Cli, Commands};
-use crate::commands::{Command, load_config};
-use crate::domain::{LinkOps, LinkStatus};
-use crate::infra::{AppConfig, Config, FileSystem, FsUtils, build_link_request, resolve_apps};
+use crate::cli::{CliContext, RepairArgs};
+use crate::commands::{Command, load_config, select_apps};
+use crate::domain::{LinkOps, LinkStatus, build_link_request};
+use crate::infra::{Config, FileSystem, FsUtils};
 
-/// Repair 命令实现
-pub struct RepairCommand;
-
-impl Command for RepairCommand {
-    fn execute(&self, cli: &Cli) -> Result<()> {
-        let (apps, all, force) = match &cli.command {
-            Commands::Repair { apps, all, force } => (apps, *all, *force),
-            _ => unreachable!(),
-        };
-
-        let config = load_config(cli.config.as_ref())?;
-        handle_repair(&config, apps, all, force, cli.verbose)
+/// Repair 子命令实现
+impl Command for RepairArgs {
+    fn execute(&self, ctx: &CliContext) -> Result<()> {
+        let config = load_config(ctx)?;
+        handle_repair(&config, &self.apps, self.all, self.force, ctx.verbose)
     }
 }
 
@@ -31,65 +24,56 @@ pub fn handle_repair(
     verbose: bool,
 ) -> Result<()> {
     let fs = FsUtils;
-    let apps_to_repair = resolve_apps(config, apps, all);
 
-    for app_id in apps_to_repair {
-        if let Some(app_config) = config.get_app(app_id) {
-            repair_app(config, app_config, &fs, force, verbose)?;
+    for (app_id, app_config) in select_apps(config, apps, all)? {
+        if verbose {
+            println!("\nRepairing app: {}", app_config.name);
+        }
+
+        for source in &app_config.sources {
+            let request = build_link_request(app_config, source, &config.workspace.path, force);
+            repair_source(&request, &fs, force, verbose).map_err(|e| {
+                e.context(format!(
+                    "Failed to repair {}:{}",
+                    app_id,
+                    request.source.display()
+                ))
+            })?;
         }
     }
 
     Ok(())
 }
 
-/// 修复应用的所有损坏链接
-fn repair_app(
-    config: &Config,
-    app_config: &AppConfig,
-    fs: &(dyn FileSystem + 'static),
+/// 修复单个 source 的链接状态
+fn repair_source(
+    request: &crate::domain::LinkRequest,
+    fs: &dyn FileSystem,
     force: bool,
     verbose: bool,
 ) -> Result<()> {
-    let workspace_path = &config.workspace.path;
+    let source_display = request.source.display().to_string();
 
-    for source in &app_config.sources {
-        let (request, source_path, _) =
-            build_link_request(app_config, source, workspace_path, force);
-        let source_display = source_path.to_string_lossy().to_string();
-        let status = LinkOps::check_status(&source_path, &request.target);
-
-        match status {
-            LinkStatus::Broken => {
-                if verbose {
-                    println!("  Repairing broken link: {}", source_display);
-                }
-
-                fs.remove_if_exists(&source_path)?;
-
-                LinkOps::link_with_fs(&request, fs, verbose)?;
+    match LinkOps::check_status(&request.source, &request.target) {
+        // 源链接指向已消失的目标：删除旧链接后重建（目标缺失时由 link 流程补建空目录）
+        LinkStatus::Broken => {
+            fs.remove_if_exists(&request.source)?;
+            LinkOps::link_with_fs(request, fs)?;
+            println!("  ✓ Repaired broken link: {source_display}");
+        }
+        // 目标孤立存在（无链接）：--force 时补建链接
+        LinkStatus::TargetOnly => {
+            if force {
+                LinkOps::link_with_fs(request, fs)?;
+                println!("  ✓ Linked orphaned target: {source_display}");
+            } else {
+                println!("  Target exists without link, use --force: {source_display}");
             }
-            LinkStatus::TargetOnly => {
-                if force {
-                    if verbose {
-                        println!("  Creating link for orphaned target: {}", source_display);
-                    }
-
-                    LinkOps::link_with_fs(&request, fs, verbose)?;
-                } else {
-                    println!(
-                        "  Target exists without link. Use --force to create link: {}",
-                        source_display
-                    );
-                }
-            }
-            _ => {
-                if verbose {
-                    println!(
-                        "  Skipping {} (status: {})",
-                        source_display,
-                        status.as_str()
-                    );
-                }
+        }
+        // 其余状态（linked / both_exist / source_only / none）无需修复
+        other => {
+            if verbose {
+                println!("  Skipping {source_display} (status: {})", other.as_str());
             }
         }
     }

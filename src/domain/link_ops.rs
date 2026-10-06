@@ -12,24 +12,16 @@
 //! - **返回值**（调用者需要所有权）：使用 `PathBuf`
 //! - **结构体字段**（需要存储）：使用 `PathBuf`
 //!
-//! ### 公开方法签名示例
-//! ```rust,ignore
-//! // ✅ 正确：输入参数使用 &Path
-//! pub fn unlink(source: &Path, target: &Path, ...) -> Result<()>;
-//! pub fn check_status(source: &Path, target: &Path) -> LinkStatus;
+//! ## 日志约定
 //!
-//! // ✅ 正确：结构体字段使用 PathBuf（需要所有权）
-//! pub struct LinkRequest {
-//!     pub source: PathBuf,
-//!     pub target: PathBuf,
-//! }
-//! ```
+//! 领域层不感知 CLI `--verbose`：过程信息统一用 `tracing::debug!` 记录，
+//! 由 `main.rs` 的 EnvFilter 决定是否展示（verbose 开启时 filter 降到 debug）。
 
 use anyhow::{Context, Result};
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use tracing::{debug, info};
+use tracing::debug;
 
 use super::link_status::{LinkStatus, LinkStatusChecker};
 use super::strategies::{OnExists, OnExistsAction};
@@ -81,97 +73,117 @@ pub struct LinkOps;
 impl LinkOps {
     /// 创建链接：将源路径的内容转移到目标路径，然后在源位置创建链接指向目标
     ///
-    /// # 核心设计思路
+    /// ## 状态机
     ///
-    /// 所有情况的最终目标都是转化为 **"source 不存在 + target 存在"** 的标准状态，
-    /// 然后直接执行 `create_link(source, target)`。
+    /// 所有分支先归一到 **"source 不存在 + target 存在"** 的标准状态，
+    /// 然后统一执行 `create_link(source, target)`：
     ///
-    /// # 流程
-    /// 1. 检查符号链接：如果已正确链接则直接返回
-    /// 2. 预处理：通过各种手段转化为标准状态
-    ///    - source 存在 + target 不存在：移动 source → target
-    ///    - source 存在 + target 存在：根据 on_exists 策略处理
-    ///    - source 不存在 + target 不存在：创建 target 目录
-    ///    - source 不存在 + target 存在：已是标准状态，无需操作
-    /// 3. 创建链接：在 source 位置创建指向 target 的链接
-    pub fn link_with_fs(request: &LinkRequest, fs: &dyn FileSystem, verbose: bool) -> Result<()> {
-        let source = &request.source;
-        let target = &request.target;
+    /// | 当前状态 | 动作 |
+    /// |---------|------|
+    /// | source 是指向 target 的链接 | 幂等，直接返回 |
+    /// | source 是指向其他位置的链接 | force：删除后重建；否则报错 |
+    /// | source 真实存在 + target 不存在 | 移动 source → target |
+    /// | source 真实存在 + target 存在 | 按 `on_exists` 策略归一（skip 报错） |
+    /// | source 不存在 + target 不存在 | 创建空 target 目录 |
+    /// | source 不存在 + target 存在 | 无需归一，直接建链 |
+    pub fn link_with_fs(request: &LinkRequest, fs: &dyn FileSystem) -> Result<()> {
+        let source = request.source.as_path();
+        let target = request.target.as_path();
 
-        Self::log_link_request(source, target, request);
+        debug!(
+            "Linking: {} -> {} (type: {:?}, on_exists: {:?}, force: {})",
+            source.display(),
+            target.display(),
+            request.link_type,
+            request.on_exists,
+            request.force,
+        );
 
-        // 步骤1: 检查符号链接（如果已正确链接则直接返回）
-        if Self::check_and_handle_symlink(source, target, request.force, fs, verbose)? {
+        // 步骤1: 已存在的符号链接 → 幂等返回 / force 重建 / 报错
+        if Self::handle_existing_symlink(source, target, request.force, fs)? {
             return Ok(());
         }
 
         // 步骤2: 预处理，转化为标准状态（source 不存在 + target 存在）
-        Self::prepare_standard_state(source, target, request.on_exists, fs, verbose)?;
+        Self::prepare_standard_state(source, target, request.on_exists, fs)?;
 
         // 步骤3: 创建链接
-        Self::create_link(source, target, request.link_type, fs, verbose)
+        Self::create_link(source, target, request.link_type, fs)
+    }
+
+    /// 处理 source 位置已存在的符号链接
+    ///
+    /// - source 不是链接：直接返回（进入状态归一流程）
+    /// - 已正确指向 target：幂等返回 `true`（link_with_fs 应跳过后续步骤）
+    fn handle_existing_symlink(
+        source: &Path,
+        target: &Path,
+        force: bool,
+        fs: &dyn FileSystem,
+    ) -> Result<bool> {
+        if !source.is_symlink() {
+            return Ok(false);
+        }
+
+        if force {
+            debug!("Force: removing existing symlink: {}", source.display());
+            fs.remove_if_exists(source)?;
+            return Ok(false);
+        }
+
+        if Self::points_to(source, target, fs) {
+            debug!("Already linked: {}", source.display());
+            return Ok(true);
+        }
+
+        anyhow::bail!(
+            "Source is already a symlink pointing to different target: {:?}",
+            source
+        )
+    }
+
+    /// 检查符号链接是否指向预期目标（按规范化路径比较）
+    fn points_to(link: &Path, target: &Path, fs: &dyn FileSystem) -> bool {
+        fs.read_link(link)
+            .is_some_and(|linked| fs.normalize_path(&linked) == fs.normalize_path(target))
     }
 
     /// 预处理：将当前状态转化为标准状态（source 不存在 + target 存在）
-    ///
-    /// # 状态转化表
-    /// | 当前状态 | 操作 | 转化结果 |
-    /// |---------|------|---------|
-    /// | source 存在 + target 不存在 | 移动 source → target | source 不存在 + target 存在 |
-    /// | source 存在 + target 存在 + replace | 删除 target，移动 source → target | source 不存在 + target 存在 |
-    /// | source 存在 + target 存在 + merge | 合并 source 到 target 后删除 source | source 不存在 + target 存在 |
-    /// | source 存在 + target 存在 + overwrite/preserve | 删除 source | source 不存在 + target 存在 |
-    /// | source 存在 + target 存在 + skip | 抛出错误（跳过） | 不继续 |
-    /// | source 不存在 + target 不存在 | 创建 target 目录 | source 不存在 + target 存在 |
-    /// | source 不存在 + target 存在 | 无需操作（已是标准状态） | source 不存在 + target 存在 |
     fn prepare_standard_state(
         source: &Path,
         target: &Path,
         on_exists: OnExists,
         fs: &dyn FileSystem,
-        verbose: bool,
     ) -> Result<()> {
-        if source.exists() && !source.is_symlink() {
-            // source 存在：需要根据 target 是否存在进行不同处理
-            if !target.exists() {
-                // source 存在 + target 不存在：直接移动
-                if verbose {
-                    info!("Moving source to target (target doesn't exist)");
-                }
-                fs.ensure_parent_exists(target)?;
-                fs.move_dir_cross_filesystem(source, target)?;
+        // force 重建时链接已被删除，这里不存在符号链接分支
+        if source.exists() {
+            if target.exists() {
+                // 双方都存在：由 on_exists 策略裁决
+                Self::resolve_conflict(source, target, on_exists, fs)?;
             } else {
-                // source 存在 + target 存在：执行 on_exists 策略
-                Self::apply_on_exists_strategy(source, target, on_exists, fs, verbose)?;
+                // 仅 source 存在：直接移动
+                debug!("Moving source to target (target doesn't exist)");
+                fs.ensure_parent_exists(target)?;
+                fs.move_path(source, target)?;
             }
-        } else {
-            // source 不存在：只需确保 target 存在
-            if !target.exists() {
-                if verbose {
-                    info!("Creating target directory (source doesn't exist)");
-                }
-                std::fs::create_dir_all(target)
-                    .with_context(|| format!("Failed to create target directory: {:?}", target))?;
-            }
+        } else if !target.exists() {
+            // 双方都不存在：创建空 target，保证有链接可指
+            debug!("Creating target directory (source doesn't exist)");
+            std::fs::create_dir_all(target)
+                .with_context(|| format!("Failed to create target directory: {:?}", target))?;
         }
+
         Ok(())
     }
 
-    /// 应用 on_exists 策略处理 source 和 target 都存在的冲突
-    ///
-    /// # 策略行为
-    /// - Replace: 删除 target → 移动 source → target
-    /// - Merge: 合并 source 到 target → 删除 source
-    /// - Overwrite/Preserve: 删除 source
-    /// - Skip: 返回错误，中断流程
-    fn apply_on_exists_strategy(
+    /// 执行 on_exists 策略，把 "source 和 target 都存在" 的冲突归一为标准状态
+    fn resolve_conflict(
         source: &Path,
         target: &Path,
         on_exists: OnExists,
         fs: &dyn FileSystem,
-        verbose: bool,
     ) -> Result<()> {
-        match on_exists.execute(source, target, fs, verbose)? {
+        match on_exists.execute(source, target, fs)? {
             OnExistsAction::Skip => {
                 anyhow::bail!(
                     "Target already exists and on_exists strategy is 'skip'. \
@@ -181,67 +193,13 @@ impl LinkOps {
             OnExistsAction::ContinueWithMove => {
                 // Replace 策略：target 已被删除，移动 source → target
                 fs.ensure_parent_exists(target)?;
-                fs.move_dir_cross_filesystem(source, target)?;
+                fs.move_path(source, target)?;
             }
             OnExistsAction::ContinueWithoutMove => {
-                // Merge/Overwrite 策略：source 已被删除或合并，无需移动
+                // Merge/Preserve 策略：source 已被删除或合并，无需移动
             }
         }
         Ok(())
-    }
-
-    fn log_link_request(source: &Path, target: &Path, request: &LinkRequest) {
-        debug!("Linking: {} -> {}", source.display(), target.display());
-        debug!("Source exists: {}", source.exists());
-        debug!("Source is_symlink: {}", source.is_symlink());
-        debug!("Target exists: {}", target.exists());
-        debug!("Target is_symlink: {}", target.is_symlink());
-        debug!("Force: {}", request.force);
-        debug!("LinkType: {:?}", request.link_type);
-    }
-
-    /// 检查并处理已存在的符号链接
-    ///
-    /// 返回 `true` 表示已正确处理完成（应跳过后续步骤），
-    /// 返回 `false` 表示需要继续执行后续步骤。
-    fn check_and_handle_symlink(
-        source: &Path,
-        target: &Path,
-        force: bool,
-        fs: &dyn FileSystem,
-        verbose: bool,
-    ) -> Result<bool> {
-        if !source.is_symlink() {
-            return Ok(false);
-        }
-
-        if force {
-            if verbose {
-                info!("Force: removing existing symlink: {}", source.display());
-            }
-            fs.remove_if_exists(source)?;
-            return Ok(false);
-        }
-
-        if let Some(target_path) = fs.read_link(source) {
-            let normalized_linked = fs.normalize_path(&target_path);
-            let normalized_target = fs.normalize_path(target);
-            if normalized_linked == normalized_target {
-                if verbose {
-                    info!(
-                        "Already linked: {} -> {}",
-                        source.display(),
-                        target_path.display()
-                    );
-                }
-                return Ok(true);
-            }
-        }
-
-        anyhow::bail!(
-            "Source is already a symlink pointing to different target: {:?}",
-            source
-        )
     }
 
     /// 在源位置创建指向目标的链接
@@ -250,7 +208,6 @@ impl LinkOps {
         target: &Path,
         link_type: LinkType,
         fs: &dyn FileSystem,
-        verbose: bool,
     ) -> Result<()> {
         match link_type {
             LinkType::Symlink => {
@@ -265,35 +222,29 @@ impl LinkOps {
                         target.display(),
                     );
                 }
-                if verbose {
-                    info!(
-                        "Creating symlink: {} -> {}",
-                        source.display(),
-                        target.display()
-                    );
-                }
+
+                debug!(
+                    "Creating symlink: {} -> {}",
+                    source.display(),
+                    target.display()
+                );
                 fs.create_symlink(target, source)?;
             }
             LinkType::Hardlink => {
-                if verbose {
-                    info!(
-                        "Creating hardlink: {} -> {}",
-                        source.display(),
-                        target.display()
-                    );
-                }
+                debug!(
+                    "Creating hardlink: {} -> {}",
+                    source.display(),
+                    target.display()
+                );
                 fs.hard_link(target, source)?;
             }
         }
 
-        if verbose {
-            info!(
-                "Successfully linked: {} -> {}",
-                source.display(),
-                target.display()
-            );
-        }
-
+        debug!(
+            "Successfully linked: {} -> {}",
+            source.display(),
+            target.display()
+        );
         Ok(())
     }
 
@@ -304,19 +255,24 @@ impl LinkOps {
         keep_files: bool,
         fs: &dyn FileSystem,
     ) -> Result<()> {
-        debug!("Unlinking: {} -> {}", source.display(), target.display());
-        debug!("Keep files: {}", keep_files);
+        debug!(
+            "Unlinking: {} -> {} (keep_files: {})",
+            source.display(),
+            target.display(),
+            keep_files,
+        );
 
         if source.is_symlink() {
             fs.remove_if_exists(source)?;
 
             if !keep_files && target.exists() {
-                Self::move_back(target, source, fs)?;
+                super::file_mover::move_back(target, source, fs)?;
             }
         } else if source.exists() {
             anyhow::bail!("Source is not a symlink: {:?}", source);
         } else if target.exists() && !keep_files {
-            Self::move_back(target, source, fs)?;
+            // 链接已丢失但目标还在：把数据移回，避免成为孤儿
+            super::file_mover::move_back(target, source, fs)?;
         }
 
         debug!(
@@ -327,20 +283,7 @@ impl LinkOps {
         Ok(())
     }
 
-    /// 将目标位置的内容移回源位置（委托给 file_mover 模块）
-    fn move_back(source: &Path, target: &Path, fs: &dyn FileSystem) -> Result<()> {
-        super::file_mover::move_back(source, target, fs)
-    }
-
-    /// 检查链接状态（委托给 LinkStatusChecker）
-    ///
-    /// 返回值说明：
-    /// - Linked: 链接正常，目标和源都存在
-    /// - Broken: 链接损坏（源是符号链接但目标不存在）
-    /// - BothExist: 源和目标都存在但不是链接
-    /// - SourceOnly: 只有源存在
-    /// - TargetOnly: 只有目标存在
-    /// - None: 都不存在
+    /// 检查链接状态（委托给 [`LinkStatusChecker`]）
     pub fn check_status(source: &Path, target: &Path) -> LinkStatus {
         LinkStatusChecker::check(source, target)
     }

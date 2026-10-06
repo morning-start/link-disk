@@ -25,18 +25,6 @@ pub mod constants {
 
     /// 默认链接类型
     pub const DEFAULT_LINK_TYPE: LinkType = LinkType::Symlink;
-    /// 已知占位符列表（用于配置校验）
-    pub const KNOWN_PLACEHOLDERS: &[&str] = &[
-        "<home>",
-        "<appdata>",
-        "<localappdata>",
-        "<documents>",
-        "<desktop>",
-        "<downloads>",
-        "<temp>",
-        "<programfiles>",
-        "<programfilesx86>",
-    ];
 }
 
 /// 顶层配置结构体
@@ -45,8 +33,11 @@ pub struct Config {
     /// 工作区配置
     pub workspace: Workspace,
     /// 应用配置映射表 (key: 应用ID, value: 应用配置)
+    ///
+    /// 使用 `BTreeMap` 保证遍历顺序按应用 ID 字典序稳定，
+    /// 使 link/list/status 等命令的输出可复现。
     #[serde(default)]
-    pub apps: std::collections::HashMap<String, AppConfig>,
+    pub apps: std::collections::BTreeMap<String, AppConfig>,
     /// 自定义占位符映射表
     /// 键为占位符名（不含尖括号），值为实际路径
     /// 例如: { "myapp": "C:/Program Files/MyApp" }
@@ -147,49 +138,29 @@ fn check_config_permissions(path: &Path) {
     }
 }
 
-/// 检查应用级策略与源级策略之间是否存在冲突
+/// 检查将被拼接进工作区物理路径的分量（应用名、target）是否安全
 ///
-/// 冲突模式：
-/// - skip + (replace/merge/preserve): 应用级 skip 导致所有 source 策略不会生效
-/// - replace/preserve + (merge/skip): 应用级销毁与源级保护矛盾
-fn check_strategy_conflicts(app_id: &str, app_config: &AppConfig) -> Result<()> {
-    let app_strategy = app_config.on_exists_or_default();
+/// 规则：相对路径、无根、不含 `..`、不以分隔符开头、不含
+/// Windows 非法字符 `: * ? " < > |`。违反这些规则会在预期目录之外
+/// 创建路径或直接失败，属于运行期才暴露的隐蔽错误，配置校验阶段拦截。
+fn check_workspace_relative(app_id: &str, kind: &str, value: &str) -> Result<()> {
+    let path = Path::new(value);
+    let has_invalid_char = value
+        .chars()
+        .any(|c| matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|'));
 
-    for (i, source) in app_config.sources.iter().enumerate() {
-        let Some(src_strategy) = source.on_exists else {
-            continue;
-        };
-
-        // 冲突模式 1: app 为 skip 但 source 为其他策略
-        if app_strategy == OnExists::Skip && src_strategy != OnExists::Skip {
-            anyhow::bail!(
-                "App '{}' strategy is 'skip' but source[{}] strategy is '{:?}'. \
-                 All source strategies are ignored when app strategy is 'skip'. \
-                 Either set app strategy to '{:?}' or remove the source-level override.",
-                app_id,
-                i,
-                src_strategy,
-                src_strategy,
-            );
-        }
-
-        // 冲突模式 2: app 为 replace/preserve 但 source 为 merge/skip
-        if matches!(app_strategy, OnExists::Replace | OnExists::Preserve)
-            && matches!(src_strategy, OnExists::Merge | OnExists::Skip)
-        {
-            anyhow::bail!(
-                "App '{}' strategy is '{:?}' (destructive) but source[{}] strategy is '{:?}' (preserving). \
-                 This creates conflicting behaviors: the app-level strategy will override the source-level. \
-                 Consider aligning the strategies.",
-                app_id,
-                app_strategy,
-                i,
-                src_strategy,
-            );
-        }
+    if !value.is_empty()
+        && path.is_relative()
+        && !path.has_root()
+        && !path
+            .components()
+            .any(|c| matches!(c, std::path::Component::ParentDir))
+        && !has_invalid_char
+    {
+        return Ok(());
     }
 
-    Ok(())
+    anyhow::bail!("App '{}' has unsafe {kind}: '{value}'", app_id)
 }
 
 impl Config {
@@ -221,8 +192,10 @@ impl Config {
 
     /// 校验配置有效性
     ///
-    /// 注意：`link_type` 和 `on_exists` 的值域校验已由 serde 反序列化完成，
-    /// 此处仅校验结构关系（空值、占位符合法性、target 冲突、策略冲突）。
+    /// 注意：`link_type` 和 `on_exists` 的值域校验已由 serde 反序列化完成。
+    /// 双层 `on_exists`（源级 > 应用级，见 docs/config.md）是正常覆盖关系，
+    /// 不存在冲突，因此不校验组合；这里只校验会导致运行期隐蔽错误的项：
+    /// 空值、占位符合法性、路径分量安全性、同应用 target 冲突。
     pub fn validate(&self) -> Result<()> {
         if self.workspace.path.to_string_lossy().is_empty() {
             anyhow::bail!("Workspace path cannot be empty");
@@ -232,6 +205,8 @@ impl Config {
             if app_config.name.trim().is_empty() {
                 anyhow::bail!("App '{}' has empty name", app_id);
             }
+
+            check_workspace_relative(app_id, "name", &app_config.name)?;
 
             for source in &app_config.sources {
                 if source.source.trim().is_empty() {
@@ -244,10 +219,11 @@ impl Config {
 
                 check_placeholders(&source.source)
                     .map_err(|e| anyhow::anyhow!("App '{}': {}", app_id, e))?;
+                check_workspace_relative(app_id, "target", &source.target)
+                    .map_err(|e| anyhow::anyhow!("App '{}': {}", app_id, e))?;
             }
 
             check_target_conflicts(app_id, app_config)?;
-            check_strategy_conflicts(app_id, app_config)?;
         }
 
         Ok(())
@@ -265,13 +241,14 @@ impl Config {
 }
 
 impl AppConfig {
-    /// 获取目标已存在时的处理策略，未配置则返回默认 Skip
-    pub fn on_exists_or_default(&self) -> OnExists {
-        self.on_exists.unwrap_or_default()
+    /// 获取生效策略：源级 `on_exists` > 应用级 `on_exists` > 默认 `Skip`
+    #[must_use]
+    pub fn effective_strategy(&self, source: &Source) -> OnExists {
+        source.on_exists.or(self.on_exists).unwrap_or_default()
     }
 }
 
-/// 检查路径中的占位符是否都是已知的（含运行时注册的自定义占位符）
+/// 检查路径中的占位符是否都已注册（内置 + 自定义，注册表是唯一事实来源）
 fn check_placeholders(path: &str) -> Result<()> {
     let mut start = 0;
     while let Some(open) = path[start..].find('<') {
@@ -279,10 +256,8 @@ fn check_placeholders(path: &str) -> Result<()> {
         if let Some(close) = path[abs_open..].find('>') {
             let abs_close = abs_open + close + 1;
             let candidate = &path[abs_open..abs_close];
-            let is_known = constants::KNOWN_PLACEHOLDERS.contains(&candidate)
-                || is_known_placeholder(candidate);
 
-            if !is_known {
+            if !is_known_placeholder(candidate) {
                 anyhow::bail!("Unknown placeholder '{}' in path '{}'", candidate, path);
             }
 
@@ -298,17 +273,16 @@ fn check_placeholders(path: &str) -> Result<()> {
 fn check_target_conflicts(app_id: &str, app_config: &AppConfig) -> Result<()> {
     let mut seen = std::collections::HashMap::<&str, usize>::new();
 
-    for source in &app_config.sources {
-        if let Some(index) = seen.get(source.target.as_str()) {
+    for (i, source) in app_config.sources.iter().enumerate() {
+        if let Some(first) = seen.insert(source.target.as_str(), i) {
             anyhow::bail!(
                 "App '{}' has target conflict: source[{}] and source[{}] both map to '{}'",
                 app_id,
-                index,
-                seen.len(),
+                first,
+                i,
                 source.target,
             );
         }
-        seen.insert(source.target.as_str(), seen.len());
     }
 
     Ok(())
@@ -405,17 +379,15 @@ mod tests {
         assert!(check_target_conflicts("test", &app).is_ok());
     }
 
-    // === on_exists 策略优先级测试 ===
+    // === on_exists 策略覆盖语义测试 ===
 
     #[test]
     fn test_default_strategy_is_skip() {
-        let app = AppConfig {
-            name: "test".into(),
-            enabled: true,
-            on_exists: None,
-            sources: vec![],
-        };
-        assert_eq!(app.on_exists_or_default(), OnExists::Skip);
+        let app = sample_app(vec![]);
+        assert_eq!(
+            app.effective_strategy(&sample_source("dst")),
+            OnExists::Skip
+        );
     }
 
     #[test]
@@ -426,194 +398,111 @@ mod tests {
             on_exists: Some(OnExists::Replace),
             sources: vec![],
         };
-        assert_eq!(app.on_exists_or_default(), OnExists::Replace);
+        assert_eq!(
+            app.effective_strategy(&sample_source("dst")),
+            OnExists::Replace
+        );
+    }
+
+    #[test]
+    fn test_source_override_with_app_skip_is_valid() {
+        // 应用级 skip + 源级覆盖是文档承诺的正常用法（源级 > 应用级），不应报错
+        let app = sample_app(vec![Source {
+            source: "<home>/src".into(),
+            target: "dst".into(),
+            link_type: LinkType::Symlink,
+            on_exists: Some(OnExists::Merge),
+        }]);
+        let config = sample_config(app);
+        assert!(
+            config.validate().is_ok(),
+            "source-level override must be accepted regardless of app-level strategy"
+        );
+    }
+
+    #[test]
+    fn test_mixed_app_and_source_strategies_are_valid() {
+        let app = AppConfig {
+            name: "test".into(),
+            enabled: true,
+            on_exists: Some(OnExists::Replace),
+            sources: vec![
+                sample_source("a"),
+                Source {
+                    source: "<home>/src".into(),
+                    target: "b".into(),
+                    link_type: LinkType::Symlink,
+                    on_exists: Some(OnExists::Preserve),
+                },
+            ],
+        };
+        assert!(sample_config(app).validate().is_ok());
     }
 
     // === Config::validate 测试 ===
 
+    /// 用单个应用构造最小可校验的 Config
+    fn sample_config(app: AppConfig) -> Config {
+        let mut apps = std::collections::BTreeMap::new();
+        apps.insert("test".into(), app);
+        Config {
+            workspace: Workspace {
+                path: PathBuf::from("D:/ws"),
+            },
+            apps,
+            custom_placeholders: std::collections::HashMap::new(),
+        }
+    }
+
     #[test]
     fn test_empty_workspace_path_fails() {
-        use std::collections::HashMap;
-        let config = Config {
+        let config = sample_config(sample_app(vec![]));
+        let empty = Config {
             workspace: Workspace {
                 path: PathBuf::new(),
             },
-            apps: HashMap::new(),
-            custom_placeholders: HashMap::new(),
+            ..config
         };
-        assert!(config.validate().is_err());
+        assert!(empty.validate().is_err());
     }
 
     #[test]
     fn test_empty_app_name_fails() {
         let app = AppConfig {
             name: "".into(),
-            enabled: true,
-            on_exists: None,
-            sources: vec![],
+            ..sample_app(vec![])
         };
-        let mut apps = std::collections::HashMap::new();
-        apps.insert("empty".into(), app);
-        let config = Config {
-            workspace: Workspace {
-                path: PathBuf::from("D:/ws"),
-            },
-            apps,
-            custom_placeholders: std::collections::HashMap::new(),
-        };
-        assert!(config.validate().is_err());
+        assert!(sample_config(app).validate().is_err());
     }
 
-    // === 策略冲突测试 ===
+    // === 工作区路径安全性测试 ===
 
     #[test]
-    fn test_app_skip_with_source_replace_fails() {
+    fn test_app_name_with_invalid_char_fails() {
         let app = AppConfig {
-            name: "test".into(),
-            enabled: true,
-            on_exists: Some(OnExists::Skip),
-            sources: vec![Source {
-                source: "<home>/src".into(),
-                target: "dst".into(),
-                link_type: LinkType::Symlink,
-                on_exists: Some(OnExists::Replace),
-            }],
+            name: "My:App".into(),
+            ..sample_app(vec![])
         };
-        let mut apps = std::collections::HashMap::new();
-        apps.insert("test".into(), app);
-        let config = Config {
-            workspace: Workspace {
-                path: PathBuf::from("D:/ws"),
-            },
-            apps,
-            custom_placeholders: std::collections::HashMap::new(),
-        };
-        assert!(config.validate().is_err());
+        let err = sample_config(app).validate().unwrap_err().to_string();
+        assert!(err.contains("unsafe name"), "Got: {err}");
     }
 
     #[test]
-    fn test_app_skip_with_source_merge_fails() {
-        let app = AppConfig {
-            name: "test".into(),
-            enabled: true,
-            on_exists: Some(OnExists::Skip),
-            sources: vec![Source {
-                source: "<home>/src".into(),
-                target: "dst".into(),
-                link_type: LinkType::Symlink,
-                on_exists: Some(OnExists::Merge),
-            }],
-        };
-        let mut apps = std::collections::HashMap::new();
-        apps.insert("test".into(), app);
-        let config = Config {
-            workspace: Workspace {
-                path: PathBuf::from("D:/ws"),
-            },
-            apps,
-            custom_placeholders: std::collections::HashMap::new(),
-        };
-        assert!(config.validate().is_err());
+    fn test_target_escaping_workspace_fails() {
+        for bad_target in ["../escape", "C:/Windows", "/absolute"] {
+            let app = sample_app(vec![sample_source(bad_target)]);
+            let err = sample_config(app).validate().unwrap_err().to_string();
+            assert!(
+                err.contains("unsafe target"),
+                "target '{bad_target}' should be rejected, got: {err}"
+            );
+        }
     }
 
     #[test]
-    fn test_app_replace_with_source_merge_fails() {
-        let app = AppConfig {
-            name: "test".into(),
-            enabled: true,
-            on_exists: Some(OnExists::Replace),
-            sources: vec![Source {
-                source: "<home>/src".into(),
-                target: "dst".into(),
-                link_type: LinkType::Symlink,
-                on_exists: Some(OnExists::Merge),
-            }],
-        };
-        let mut apps = std::collections::HashMap::new();
-        apps.insert("test".into(), app);
-        let config = Config {
-            workspace: Workspace {
-                path: PathBuf::from("D:/ws"),
-            },
-            apps,
-            custom_placeholders: std::collections::HashMap::new(),
-        };
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_app_preserve_with_source_skip_fails() {
-        let app = AppConfig {
-            name: "test".into(),
-            enabled: true,
-            on_exists: Some(OnExists::Preserve),
-            sources: vec![Source {
-                source: "<home>/src".into(),
-                target: "dst".into(),
-                link_type: LinkType::Symlink,
-                on_exists: Some(OnExists::Skip),
-            }],
-        };
-        let mut apps = std::collections::HashMap::new();
-        apps.insert("test".into(), app);
-        let config = Config {
-            workspace: Workspace {
-                path: PathBuf::from("D:/ws"),
-            },
-            apps,
-            custom_placeholders: std::collections::HashMap::new(),
-        };
-        assert!(config.validate().is_err());
-    }
-
-    #[test]
-    fn test_no_conflict_without_source_override() {
-        let app = AppConfig {
-            name: "test".into(),
-            enabled: true,
-            on_exists: Some(OnExists::Replace),
-            sources: vec![Source {
-                source: "<home>/src".into(),
-                target: "dst".into(),
-                link_type: LinkType::Symlink,
-                on_exists: None,
-            }],
-        };
-        let mut apps = std::collections::HashMap::new();
-        apps.insert("test".into(), app);
-        let config = Config {
-            workspace: Workspace {
-                path: PathBuf::from("D:/ws"),
-            },
-            apps,
-            custom_placeholders: std::collections::HashMap::new(),
-        };
-        assert!(config.validate().is_ok());
-    }
-
-    #[test]
-    fn test_no_conflict_consistent_strategies() {
-        let app = AppConfig {
-            name: "test".into(),
-            enabled: true,
-            on_exists: Some(OnExists::Replace),
-            sources: vec![Source {
-                source: "<home>/src".into(),
-                target: "dst".into(),
-                link_type: LinkType::Symlink,
-                on_exists: Some(OnExists::Replace),
-            }],
-        };
-        let mut apps = std::collections::HashMap::new();
-        apps.insert("test".into(), app);
-        let config = Config {
-            workspace: Workspace {
-                path: PathBuf::from("D:/ws"),
-            },
-            apps,
-            custom_placeholders: std::collections::HashMap::new(),
-        };
-        assert!(config.validate().is_ok());
+    fn test_valid_multilevel_target_passes() {
+        let app = sample_app(vec![sample_source("app/sub dir/data")]);
+        assert!(sample_config(app).validate().is_ok());
     }
 
     // === serde 强类型反序列化测试 ===

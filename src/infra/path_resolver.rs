@@ -97,7 +97,8 @@ static PLACEHOLDER_REGISTRY: LazyLock<RwLock<HashMap<String, PlaceholderResolver
 
         map.insert(
             placeholders::TEMP.to_string(),
-            Box::new(|| dirs::cache_dir().map(|p| p.to_string_lossy().into_owned())),
+            // 用平台临时目录而非 dirs::cache_dir()：Linux 上 cache 与 temp 是两个概念
+            Box::new(|| Some(std::env::temp_dir().to_string_lossy().into_owned())),
         );
 
         map.insert(
@@ -113,12 +114,11 @@ static PLACEHOLDER_REGISTRY: LazyLock<RwLock<HashMap<String, PlaceholderResolver
         RwLock::new(map)
     });
 
-/// 检查占位符是否已注册（含内置和运行时注册）
+/// 检查占位符是否已注册
+///
+/// 注册表在初始化时已包含全部内置占位符，因此只需查注册表；
+/// 这也是 `Config::validate` 判断占位符合法性的唯一依据。
 pub fn is_known_placeholder(placeholder: &str) -> bool {
-    if placeholders::BUILT_IN.contains(&placeholder) {
-        return true;
-    }
-
     let registry = PLACEHOLDER_REGISTRY
         .read()
         .expect("Placeholder registry lock poisoned");
@@ -172,13 +172,6 @@ impl PathResolver {
             );
         }
         PathBuf::from(path)
-    }
-
-    /// 展开路径并检查是否存在，存在则返回 Some(PathBuf)
-    pub fn resolve_if_exists(path: &str) -> Option<PathBuf> {
-        let expanded = Self::replace_placeholders(path);
-        let path = PathBuf::from(expanded);
-        if path.exists() { Some(path) } else { None }
     }
 
     /// 替换字符串中的所有占位符为实际路径
